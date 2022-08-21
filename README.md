@@ -90,6 +90,8 @@ Returns:
 
 - `num_particles` : (int) number of detected particles
 
+-------
+
 **`particles = imagetools.masks_to_particles(masks[, x_orig, y_orig, [minarea]])`** : Convert array of object masks
 (as returned by instance segmentation models such as Mask_RCNN) into a tuple of tuples containing particle data in the
 same format as `detect_particles()`.
