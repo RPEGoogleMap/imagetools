@@ -4,7 +4,17 @@
 import platform
 import setuptools
 from distutils.core import *
-from distutils      import sysconfig
+from distutils import sysconfig
+
+from distutils.command.build import build
+
+class NativeBuild(build):
+    sub_commands = [
+        ('build_ext', build.has_ext_modules), 
+        ('build_py', build.has_pure_modules),
+        ('build_clib', build.has_c_libraries), 
+        ('build_scripts', build.has_scripts),
+    ]
 
 # Third-party modules - we depend on numpy for everything
 import numpy
@@ -29,13 +39,14 @@ _imagetools = Extension("_imagetools",
                    extra_compile_args = _complile_args,
                    )
 
-# rpesegm setup
-setup(  name        = "imagetools",
+# imagetools setup
+setup(  cmdclass    = {'build': NativeBuild},
+        name        = "imagetools",
         description = "Native support for various image segmentation operations",
         author      = "Andrei Volkov",
         version     = "1.0.0",
         license     = "License.txt",
-        packages=[''],
         install_requires=['numpy'],
-        ext_modules = [_imagetools,]
+        ext_modules = [_imagetools,],
+        py_modules  = ["imagetools"]
         )
