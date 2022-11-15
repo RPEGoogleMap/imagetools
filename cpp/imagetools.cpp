@@ -301,3 +301,41 @@ Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv
 	
 	return res;
 }
+
+std::vector<std::vector<std::vector<int>>> border_pixels(int w, int h, int d, const char *csvfile)
+{
+	std::vector<std::vector<std::vector<int>>> res;
+	
+	std::vector<Particle3D> cells;
+	if (read_cell_data(csvfile, cells, w, h, d) < 0)
+		return res;
+	if (cells.empty())
+		return res;
+
+	Raster3D mstack(w, h, d, NULL);
+	mstack.fill(0x80);
+	for (Particle3D& cell : cells)
+		mstack.paintParticle(cell, 0);
+	mstack.expandBorders(0x80, 0, 0xFF);
+	
+	res.resize(cells.size());
+	for (int i=0; size_t(i)<cells.size(); i++) {
+		Particle3D& cell = cells[i];
+		std::vector<std::vector<int>>& cres = res[i];
+		for (int z=0; z<size_t(cell.fills.size()); z++) {
+			for (HSeg& hs : cell.fills[z]) {
+				for (int x=hs.xl; x<=hs.xr; x++) {
+					if (mstack.value(x, hs.y, z) != 0xFF) continue;
+					cres.resize(cres.size()+1);
+					std::vector<int>& cpt = cres[cres.size() - 1];
+					cpt.push_back(x);
+					cpt.push_back(hs.y);
+					cpt.push_back(z);
+				}
+			}
+		}
+	}
+	
+	return res;
+}
+

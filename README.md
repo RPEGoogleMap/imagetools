@@ -192,4 +192,32 @@ Returns:
 
 -------
 
+**`result = imagetools.imagetools.border_pixels(w, h, d, csvfile)`** : Extract border pixel coordinates from
+segmentation data.
+
+Parameters:
+
+- `w`, `h`, `d` : (int) dimensions of the 3D image on which the segmentations were performed (`d` = number of frames).
+
+- `csvfile` : (str) path to file containing 3D segmentation, formatted as `ID,Frame,y,xL,xR`, such as one
+produced by `assemble_ml()`.
+
+Returns:
+
+- `result` : (tuple of tuples of tuples), pixel data formatted like this:
+
+```
+	(
+		((x0,y0,z0), (x1,y1,z1), ...),	# object 1
+		((x0,y0,z0), (x1,y1,z1), ...),	# object 2
+		((x0,y0,z0), (x1,y1,z1), ...),	# object 3
+		...
+	)
+```
+
+The outer tuple contains object tuples representing segmented objects, one entry per ID
+The object tuples contain coordinate tuples of size 3 (x, y, z), one entry per border pixel.
+
+-------
+
 

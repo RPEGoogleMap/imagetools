@@ -68,4 +68,20 @@ struct Compare3dResult {
 
 Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv, const char *cmp_csv);
 
+// result = imagetools.border_pixels(w, h, d, csvfile)
+//
+// w,h,d (int) - stack dimensions (width, height, number of frames)
+// csvfile (str) - path to .csv containing particle data (ID,Frame,y,xL,xR)
+//
+// result - tuple of tuples of tuples, formatted like this:
+//	(
+//		((x0,y0,z0), (x1,y1,z1), ...),	# object 1
+//		((x0,y0,z0), (x1,y1,z1), ...),	# object 2
+//		((x0,y0,z0), (x1,y1,z1), ...),	# object 3
+//		...
+//	)
+//
+// * (xN,yN,zN) -- coordinates of a border pixel
+std::vector<std::vector<std::vector<int>>> border_pixels(int w, int h, int d, const char *csvfile);
+
 #endif

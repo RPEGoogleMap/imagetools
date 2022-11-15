@@ -205,7 +205,7 @@ public:
 	void fillContour(Contour &cont, unsigned char fill_c, unsigned char bord_c);
 	void paintContourBorder(Contour &cont, unsigned char bord_c);
 	// replace c0 with newc if next to oldc
-	void expandBorders(unsigned char oldc, unsigned char newc,
+	int expandBorders(unsigned char oldc, unsigned char newc,
 			int nbsz=HOOD_SIZE_RAD3, unsigned char c0=0);
 	void expandBordersInto(Boundary &bnd, unsigned char fg, unsigned char bk, unsigned char tmpc,
 			int nbsz=HOOD_SIZE_NEUMANN, bool keeptmpc=false);

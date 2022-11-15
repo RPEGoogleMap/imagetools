@@ -458,8 +458,9 @@ void Raster8::paintContourBorder(Contour &cont, unsigned char bord_c)
 	}
 }
 
-void Raster8::expandBorders(unsigned char oldc, unsigned char newc, int nbsz, unsigned char c0)
+int Raster8::expandBorders(unsigned char oldc, unsigned char newc, int nbsz, unsigned char c0)
 {
+	int cnt = 0;
 	int bsz = 1;
 	if (nbsz > HOOD_SIZE_FATCROSS) bsz = 3;
 	else if (nbsz > HOOD_SIZE_MOORE) bsz = 2;
@@ -473,11 +474,13 @@ void Raster8::expandBorders(unsigned char oldc, unsigned char newc, int nbsz, un
 				int y = y0+hood_pts[j].dy;
 				if (value(x, y) == oldc) {
 					p[x0] = newc;
+					++cnt;
 					break;
 				}
 			}
 		}
 	}
+	return cnt;
 }
 
 void Raster8::expandBordersInto(Boundary &bnd, unsigned char fg, unsigned char bk, unsigned char tmpc,
