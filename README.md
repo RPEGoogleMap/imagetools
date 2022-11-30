@@ -254,7 +254,8 @@ Returns:
 
 The procedure first "erodes" input objects (one by one) by 1 pixel to completely isolate loosely connected appendages
 (if any), then detect all resulting disconnected parts using a flood fill algorithm, then picks up the biggest part
-and removes the rest. As a result, some small input objects may completely disappear from the output data.
+and removes the rest. The remaining part is "dilated" by 1 pixel to restore original boundaries (as close
+as possible). As a result, some small input objects may completely disappear from the output data.
 
 Parameters:
 
