@@ -286,8 +286,18 @@ public:
 		for (long long i=0; i<len; i++)
 			if (buf[i] == oldc) buf[i] = newc;
 	}
+	void replaceColorInv(unsigned char oldc, unsigned char newc) {
+		for (long long i=0; i<len; i++)
+			if (buf[i] != oldc) buf[i] = newc;
+	}
 	//
-	void expandBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz=HOOD3D_26);
+	void replaceColor(Boundary3D& bnd, unsigned char oldc, unsigned char newc);
+	void expandBorders(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz=HOOD3D_26);
+	void expandBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz=HOOD3D_26)
+	{
+		Boundary3D bnd = getBoundary();
+		expandBorders(bnd, fg, bk, bordc, nbsz);
+	}
 	void chopBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz=HOOD3D_6);
 	void paintParticle(Particle3D &pt, unsigned char c);
 	void paintParticleADD(Particle3D &pt, int incr);
@@ -297,6 +307,14 @@ public:
 			unsigned char tmp_fg, unsigned char tmp_bordc);
 	void rescanShrunkParticles(std::vector<Particle3D> &cells, unsigned char fg, unsigned char tmpc);
 	void rescanShrunkCells(std::vector<Cell> &cells, unsigned char fg, unsigned char tmpc);
+	void sandPaperCells(std::vector<Particle3D> &cells);
+	long long rescanParticle(Particle3D& cell, unsigned char c);
+protected:
+	long long findParticleFillsZ(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
+			int x0, int y0, int z0, unsigned char newc);
+	void findFillZSlices(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
+			int z0, std::vector<HSeg>& fill, unsigned char oldc, unsigned char newc);
+	Particle3D findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char tmpc);
 };
 
 class Raster16_3D
@@ -325,5 +343,7 @@ public:
 		return buf +(plane_len*z + (long long)(w)*y);
 	}
 };
+
+std::vector<NbrPoint3D> hood_sorted_by_z(int nbsz=HOOD3D_26);
 
 #endif

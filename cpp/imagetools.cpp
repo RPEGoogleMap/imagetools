@@ -45,19 +45,20 @@ static void paint_border_particles(Raster8& msk, unsigned char c)
 	}
 }
 
-static std::vector<Slice> detect_particles_2d(Raster8& msk)
+template <class T>
+static std::vector<T> detect_particles_2d(Raster8& msk)
 {
 	// Exclude pixels at the border
 	msk.fillBorder(0x10, 1);
 	paint_border_particles(msk, 0x10);
 	
-	std::vector<Slice> particles;
+	std::vector<T> particles;
 	for (int y0=1; y0<msk.h-1; y0++) {
 		unsigned char *p = msk.scanLine(y0);
 		for (int x0=1; x0<msk.w-1; x0++) {
 			if (p[x0] == 0) {
 				particles.resize(particles.size()+1);
-				Slice& ptc = particles[particles.size()-1];
+				T& ptc = particles[particles.size()-1];
 				ptc.area = msk.detectParticle(ptc, x0, y0, 0x80);
 			}
 		}
@@ -69,7 +70,7 @@ static std::vector<Slice> detect_particles_2d(Raster8& msk)
 int detect_particles_csv(unsigned char *mask, int hm, int wm, const char *csvfile)
 {
 	Raster8 msk(wm, hm, mask);
-	std::vector<Slice> particles = detect_particles_2d(msk);
+	std::vector<Slice> particles = detect_particles_2d<Slice>(msk);
 	write_particle_data(particles, csvfile);
 	
 	return int(particles.size());
@@ -79,7 +80,7 @@ int detect_particles_csv(unsigned char *mask, int hm, int wm, const char *csvfil
 std::vector<std::vector<int>> detect_particles(unsigned char *mask, int hm, int wm)
 {
 	Raster8 msk(wm, hm, mask);
-	std::vector<Slice> particles = detect_particles_2d(msk);
+	std::vector<Slice> particles = detect_particles_2d<Slice>(msk);
 	std::vector<std::vector<int>> res(particles.size());
 	
 	for (size_t i=0; i<particles.size(); i++) {
@@ -95,7 +96,7 @@ std::vector<std::vector<int>> detect_particles(unsigned char *mask, int hm, int 
 	return res;
 }
 
-void postprocess_particle_borders(unsigned char *mask, int hm, int wm)
+void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expand)
 {
 	Raster8 out(wm, hm, mask);
 
@@ -167,13 +168,18 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm)
 	
 	// Perform a few more erosion iterations to cut into deep corners
 	out.replaceColor(0xFF, 0x80);
-	for (int pass=0; pass<5; pass++) {
+	for (int pass=0; pass<8; pass++) {
 		for (Slice &ptc : particles)
 			out.expandParticle(ptc, 0, 0x30, 0x80, HOOD_SIZE_NEUMANN);
 	}
 
 	out.replaceColor(out.forcedc, 0x80);
 	out.expandBorders(0, 0xFF, HOOD_SIZE_MOORE, 0x80);
+	
+	if (expand) {
+		out.expandBorders(0xFF, 0xC0, HOOD_SIZE_MOORE, 0);
+		out.replaceColor(0xC0, 0xFF);
+	}
 
 	out.fillBorder(0, 1);
 }
@@ -251,20 +257,23 @@ void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 	aml.consolidate_seeds();
 	aml.cells_from_seeds();
 	
-	if (postproc == POSTPROC_DNA) {
+	if (postproc & POSTPROC_DNA) {
 		// std::cout << "fix_borders_dna" << std::endl;
 		aml.fix_borders_dna();
-	} else if (postproc == POSTPROC_ACTIN) {
+	} else if (postproc & POSTPROC_ACTIN) {
 		// std::cout << "fix_borders_actin" << std::endl;
 		aml.fix_borders_actin();
 	}
 	aml.fill_gaps();
 	
+	if (postproc & POSTPROC_SANDPAPER) {
+		aml.mstack.sandPaperCells(aml.cells);
+	}
+	
 	aml.paint_final();
 	
 	std::cout << "Write " << aml.cells.size() << " objects to " << csvfile << std::endl;
 	write_cell_data(aml.cells, csvfile);
-
 }
 
 Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv, const char *cmp_csv)
@@ -338,4 +347,215 @@ std::vector<std::vector<std::vector<int>>> border_pixels(int w, int h, int d, co
 	
 	return res;
 }
+
+static void extrapolate_particle_3d(Raster3D& mstack, Particle3D& pt, int z0, int z1)
+{
+	Raster8 msk = mstack.getPlane(z1);
+	Boundary bnd = pt.bnd.boundary2d();
+	bnd.expand(1);
+	msk.clip(bnd, 1);
+	msk.paintParticleFillInto(pt.fills[z0], 0x50, 0);
+	msk.paintParticleFillInto(pt.fills[z0], 0x50, 0xFF);
+	for (int y=bnd.ymin; y<=bnd.ymax; y++) {
+		for (int x=bnd.xmin; x<=bnd.xmax; x++) {
+			if (msk.value(x, y) != 0x50) continue;
+			for (int j=1; j<HOOD_SIZE_MOORE; j++) {
+				unsigned char c = msk.value(x+hood_pts[j].dx, y+hood_pts[j].dy);
+				if (c != 0x50 && c != 0x51) {
+					msk.setValue(x, y, 0x51);
+					break;
+				}
+			}
+		}
+	}
+	msk.replaceColor(0x51, 0);
+	msk.rescanParticleFill(bnd, pt.fills[z1], 0x50);
+}
+
+void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
+{
+	Raster3D src_mstack(wm3d, hm3d, zm3d, mask3d);
+	AssemblerML aml(NULL, zm3d, hm3d, wm3d);
+	aml.GOOD_IOU = 0.75;
+	aml.ACCEPTABLE_IOU = 0.6;
+	
+	for (int z=0; z<src_mstack.d; z++) {
+		Raster8 msk = src_mstack.getPlane(z);
+		aml.all_slices[z] = detect_particles_2d<SliceML>(msk);
+		src_mstack.replaceColorInv(0xFF, 0);
+	}
+	
+	aml.find_seeds();
+	aml.consolidate_seeds();
+	aml.cells_from_seeds();
+	aml.fill_gaps();
+	
+//	int painted = 0;
+	for (Particle3D& pt : aml.cells) {
+		if (pt.realHeight() > 3) {
+			src_mstack.paintParticle(pt, 0x40);
+//			++painted;
+		} else {
+			pt.clear();
+		}
+	}
+//	std::cout << "Painted " << painted << " of " << aml.cells.size() << std::endl;
+	
+	for (Particle3D& pt : aml.cells) {
+		src_mstack.paintParticle(pt, 0x50);
+		
+		int zl=-1, zh;
+		for (int z=0; size_t(z) < pt.fills.size(); z++) {
+			if (pt.fills[z].empty()) continue;
+			if (zl < 0) zl = z;
+			zh = z;
+		}
+		
+		if (zl > 0) {
+			extrapolate_particle_3d(src_mstack, pt, zl, zl-1);
+			--zl;
+		}
+		if (zl > 0) {
+			extrapolate_particle_3d(src_mstack, pt, zl, zl-1);
+			--zl;
+		}
+		if (zh+1 < src_mstack.d) {
+			extrapolate_particle_3d(src_mstack, pt, zh, zh+1);
+			++zh;
+		}
+		
+		src_mstack.paintParticle(pt, 0x40);
+	}
+	
+	for (int z=0; z<src_mstack.d; z++) {
+		for (int y=1; y<src_mstack.h-1; y++) {
+			for (int x=1; x<src_mstack.w-1; x++) {
+				if (src_mstack.value(x, y, z) != 0) continue;
+				
+				for (int j=1; j<HOOD3D_18; j++) {
+					int z0 = z + hood3d_pts[j].dz;
+					if (z0 < 0 || z0 >= src_mstack.d) continue;
+					int y0 = y + hood3d_pts[j].dy;
+					int x0 = x + hood3d_pts[j].dx;
+					if (src_mstack.value(x0, y0, z0) == 0x40) {
+						src_mstack.setValue(x, y, z, 0x80);
+						break;
+					}
+				}
+			}
+		}
+	}
+	for (int z=0; z<src_mstack.d; z++) {
+		Raster8 msk = src_mstack.getPlane(z);
+		msk.expandBorders(0x80, 0xA0, HOOD_SIZE_MOORE, 0);
+		msk.replaceColor(0x80, 0xFF);
+		msk.replaceColor(0xA0, 0xFF);
+	}
+	
+	src_mstack.replaceColorInv(0xFF, 0);
+}
+
+void sandpaper_cells(int w, int h, int d, const char *in_csv, const char *out_csv)
+{
+	std::vector<Particle3D> cells;
+	read_cell_data(in_csv, cells, w, h, d);
+	
+	Raster3D mstack(w, h, d, NULL);
+	mstack.sandPaperCells(cells);
+
+	std::cout << "Write " << cells.size() << " objects to " << out_csv << std::endl;
+	write_cell_data(cells, out_csv);
+}
+
+void paint_cells(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *in_csv)
+{
+	std::vector<Particle3D> cells;
+	read_cell_data(in_csv, cells, wm3d, hm3d, zm3d);
+	
+	Raster3D mstack(wm3d, hm3d, zm3d, mask3d);
+	mstack.fill(0x80);
+	
+	for (Particle3D& cell : cells)
+		mstack.paintParticle(cell, 0);
+	mstack.expandBorders(0x80, 0, 0xFF, HOOD3D_26);
+}
+
+
+/*
+void gen_satellites(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *csvfile, bool sandpaper)
+{
+	Raster3D mstack(wm3d, hm3d, zm3d, mask3d);
+	
+	mstack.fill(0x80);
+	
+	int xysz = hm3d;
+	if (xysz > wm3d) xysz = wm3d;
+	double r = xysz / 5.;
+	double xc = wm3d * 0.45;
+	double yc = hm3d * 0.55;
+	double zc = zm3d / 2.;
+	
+	Boundary bnd(int(xc-r), int(yc-r), int(xc+r), int(yc+r));
+	Raster8 msk0 = mstack.getPlane(0);
+	msk0.clip(bnd, 1);
+	
+	for (int z=0; z<zm3d-2; z++) {
+		double dz = (z - zc)*5.;
+		double rzsq = r*r - dz*dz;
+		Raster8 msk = mstack.getPlane(z);
+		for (int y=bnd.ymin; y<=bnd.ymax; y++) {
+			double dy = y - yc;
+			unsigned char *p = msk.scanLine(y);
+			for (int x=bnd.xmin; x<=bnd.xmax; x++) {
+				double dx = x - xc;
+				if (dx*dx+dy*dy <= rzsq) p[x] = 0;
+			}
+		}
+		msk.expandBorders(0x80, 0x40, HOOD_SIZE_RAD3, 0);
+	}
+	
+	double pxc = xc + r / sqrt(2.) + 3.;
+	double pyc = yc - r / sqrt(2.) - 3.;
+	Boundary pbnd(int(pxc-7), int(pyc-7), int(pxc+7), int(pyc+7));
+	int zm = zm3d / 2;
+	int zl = zm - 2;
+	int zh = zm + 2;
+	for (int z=zl; z<=zh; z++) {
+		Raster8 msk = mstack.getPlane(z);
+		for (int y=pbnd.ymin; y<=pbnd.ymax; y++) {
+			unsigned char *p = msk.scanLine(y);
+			for (int x=pbnd.xmin; x<=pbnd.xmax; x++) {
+				if (p[x] == 0x80 || (z==zm && y==pbnd.ymax)) p[x] = 0;
+			}
+		}
+	}
+	
+	mstack.replaceColor(0x40, 0x80);
+	
+	bnd = msk0.getBoundary();
+	bnd.expand(-1);
+	
+	std::vector<Particle3D> cells(1);
+	Particle3D& cell = cells[0];
+	
+	cell.fills.resize(zm3d);
+	for (int z=2; z<zm3d-2; z++) {
+		Raster8 msk = mstack.getPlane(z);
+		msk.rescanParticleFill(bnd, cell.fills[z], 0);
+	}
+	cell.update_from_fill();
+	
+	if (sandpaper) {
+		mstack.sandPaperCells(cells);
+		mstack.fill(0x80);
+		for (Particle3D& cell : cells)
+			mstack.paintParticle(cell, 0);
+	}
+	
+	mstack.expandBorders(0x80, 0, 0xFF, HOOD3D_26);
+	
+	write_cell_data(cells, csvfile);
+}
+*/
+
 

@@ -138,7 +138,15 @@ if `postproc` is `imagetools.POSTPROC_DNA`, it must be pre-filled with binarized
 
 Optional parameters:
 
-- `postproc` : (int) one of `imagetools.POSTPROC_NONE` (default), `imagetools.POSTPROC_DNA` or `imagetools.POSTPROC_ACTIN`.
+- `postproc` : (int) one of `imagetools.POSTPROC_NONE` (default), `imagetools.POSTPROC_DNA`, `imagetools.POSTPROC_ACTIN`
+or `imagetools.POSTPROC_SANDPAPER`. The `imagetools.POSTPROC_SANDPAPER` option triggers removal of segmentation artifacts
+("appendages" or "micro-satellites"), same as `imagetools.sandpaper_cells()`. This flag can be used in conjunction
+with `imagetools.POSTPROC_DNA` or `imagetools.POSTPROC_ACTIN` using logical OR `'|'`:
+
+```
+	imagetools.assemble_ml(particles_3d, mask3d, csvfile, imagetools.POSTPROC_DNA | imagetools.POSTPROC_SANDPAPER)
+	imagetools.assemble_ml(particles_3d, mask3d, csvfile, imagetools.POSTPROC_ACTIN | imagetools.POSTPROC_SANDPAPER)
+```
 
 -------
 
@@ -220,4 +228,53 @@ The object tuples contain coordinate tuples of size 3 (x, y, z), one entry per b
 
 -------
 
+**`imagetools.rs_tops_bottoms(mask3d)`** : Add cell tops and bottoms to REShAPE3D Ground Truth data.
+
+The procedure tries to identify cell objects (using `imagetools.assemble_ml()`) and "complement" cell borders
+at cell tops and bottoms.
+
+<img src="assets/tops_bottoms.png" width=512 height=258/>
+
+Parameters:
+
+- `mask3d` : a numpy array of shape (num_frames, height, width) and dtype=numpy.uint8, the Ground Truth for
+REShAPE3D obtained by REShAPE-ing and post-processing individual frames in Actin channel. 0 = background,
+255 = foreground (cell walls, mostly vertical).
+
+Returns:
+
+- None, `mask3d` is updated with cell tops and bottoms.
+
+-------
+
+**`imagetools.sandpaper_cells(w, h, d, in_csv, out_csv)`** : Remove loosely connected "appendages" and disconnected
+"micro-satellites" (segmentation artifacts) from segmented 3D objects, like this:
+
+<img src="assets/sandpaper.png" />
+
+The procedure first "erodes" input objects (one by one) by 1 pixel to completely isolate loosely connected appendages
+(if any), then detect all resulting disconnected parts using a flood fill algorithm, then picks up the biggest part
+and removes the rest. As a result, some small input objects may completely disappear from the output data.
+
+Parameters:
+
+- `w`, `h`, `d` : (int) dimensions of the 3D image on which the segmentations were performed (`d` = number of frames).
+
+- `in_csv` : (str) path to file containing input 3D segmentation, formatted as `ID,Frame,y,xL,xR`, such as one
+produced by `assemble_ml()`.
+
+- `out_csv` : (str) a path to a file where the output cell data will be written to. Format is `ID,Frame,y,xL,xR`.
+
+-------
+
+**`imagetools.paint_cells(mask3d, csvfile)`** : Generate RPE Map -style 3D object mask out of cell data spreadsheet.
+
+Parameters:
+
+- `mask3d` : an empty numpy array of shape (num_frames, height, width) and dtype=numpy.uint8, where the output mask
+is stored (0=inner cell pixels, 255=border cell pixels, 128=background pixels).
+
+- `csvfile` : (str) a path to a file where the input cell data will be read from. Format is `ID,Frame,y,xL,xR`.
+
+-------
 

@@ -811,8 +811,8 @@ void Raster8::findParticleFill(std::vector<HSeg> &fill, int x0, int y0, unsigned
 	HSeg hs = HSeg(y0, xl, xr);
 	paintHSeg(hs, newc);
 
+	size_t idx = fill.size();
 	fill.push_back(hs);
-	size_t idx = 0;
 	while(idx < fill.size()) {
 		hs = fill[idx];
 		++idx;
@@ -845,20 +845,34 @@ void Raster8::bordersAround(Boundary &bnd, unsigned char fg, unsigned char bk, u
 
 //----------------------------- Raster3D --------------------------------------
 
-void Raster3D::expandBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz)
+void Raster3D::replaceColor(Boundary3D& bnd, unsigned char oldc, unsigned char newc)
 {
-	Boundary3D bnd = getBoundary();
+	Boundary b2 = bnd.boundary2d();
 	for (int z=bnd.zmin; z<=bnd.zmax; z++) {
+		Raster8 msk = getPlane(z);
+		msk.replaceColor(b2, oldc, newc);
+	}
+}
+
+void Raster3D::expandBorders(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz)
+{
+	std::vector<NbrPoint3D> nb3d = hood_sorted_by_z(nbsz);
+	for (int z=bnd.zmin; z<=bnd.zmax; z++) {
+		int j0 = -1, j1;
+		for (int j=0; size_t(j)<nb3d.size(); j++) {
+			int zz = z + nb3d[j].dz;
+			if (zz < 0 || zz >= d) continue;
+			if (j0 < 0) j0 = j;
+			j1 = j;
+		}
+		
 		for (int y=bnd.ymin; y<=bnd.ymax; y++) {
 			unsigned char *p = scanLine(y, z);
 			for (int x=bnd.xmin; x<=bnd.xmax; x++) {
 				if (p[x] != bk) continue;
-				for (int j=1; j<nbsz; j++) {
-					int x0 = x + hood3d_pts[j].dx;
-					int y0 = y + hood3d_pts[j].dy;
-					int z0 = z + hood3d_pts[j].dz;
-					if (!bnd.IsInside(x0, y0, z0)) continue;
-					if (value(x0, y0, z0) == fg) {
+				for (int j=j0; j<=j1; j++) {
+					NbrPoint3D& nbp = nb3d[j];
+					if (value(x + nbp.dx, y + nbp.dy, z + nbp.dz) == fg) {
 						p[x] = bordc;
 						break;
 					}
@@ -867,6 +881,7 @@ void Raster3D::expandBorders(unsigned char fg, unsigned char bk, unsigned char b
 		}
 	}
 }
+
 
 void Raster3D::chopBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz)
 {
@@ -1032,3 +1047,147 @@ void Raster3D::rescanShrunkCells(std::vector<Cell> &cells, unsigned char fg, uns
 		pt.update_from_fill();
 	}
 }
+
+void Raster3D::sandPaperCells(std::vector<Particle3D> &cells)
+{
+	fill(0x80);
+	for (Particle3D& cell : cells)
+		paintParticle(cell, 0);
+	expandBorders(0x80, 0, 0xFF, HOOD3D_26);
+	
+	int j=0;
+	for (int i=0; size_t(i)<cells.size(); i++) {
+		Particle3D& scell = cells[i];
+		Particle3D& tcell = cells[j];
+		Boundary3D bnd = scell.bnd;
+		paintParticleInto(scell, 0, 0x50);
+		
+		tcell = findBiggestCell(bnd, 0x50, 0xFF, 0x55);
+		paintParticle(tcell, 0x50);
+		replaceColor(bnd, 0x55, 0xFF);
+		expandBorders(bnd, 0x50, 0xFF, 0x55, HOOD3D_26);
+		replaceColor(bnd, 0x55, 0x50);
+		tcell.bnd = bnd;
+		rescanParticle(tcell, 0x50);
+		paintParticle(tcell, 0);
+		
+		if (tcell.realHeight() >= 3) ++j;
+	}
+	
+	cells.resize(j);
+}
+
+long long Raster3D::rescanParticle(Particle3D& cell, unsigned char c)
+{
+	for (std::vector<HSeg>& fill : cell.fills)
+		fill.clear();
+	
+	Boundary b2 = cell.bnd.boundary2d();
+	for (int z=cell.bnd.zmin; z<=cell.bnd.zmax; z++) {
+		Raster8 msk = getPlane(z);
+		msk.rescanParticleFill(b2, cell.fills[z], c);
+	}
+	
+	return cell.update_from_fill();
+}
+
+long long Raster3D::findParticleFillsZ(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
+		int x0, int y0, int z0, unsigned char newc)
+{
+	unsigned char oldc = value(x0, y0, z0);
+	Raster8 msk = getPlane(z0);
+	
+	size_t idx = zfills.size();
+	zfills.resize(zfills.size() + 1);
+	zfills[zfills.size()-1].first = z0;
+	msk.findParticleFill(zfills[zfills.size()-1].second, x0, y0, newc);
+	
+	while(idx < zfills.size()) {
+		int z = zfills[idx].first;
+		std::vector<HSeg> fill = zfills[idx].second;
+		++idx;
+		findFillZSlices(zfills, z, fill, oldc, newc);
+	}
+	
+	long long vol = 0;
+	
+	for (auto& el : zfills) {
+		for (HSeg hs : el.second) {
+			vol += (hs.xr - hs.xl + 1);
+		}
+	}
+	
+	return vol;
+}
+
+void Raster3D::findFillZSlices(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
+			int z0, std::vector<HSeg>& fill, unsigned char oldc, unsigned char newc)
+{
+	std::vector<int> zs;
+	if (z0 > 0) zs.push_back(z0-1);
+	if (z0+1 < d) zs.push_back(z0+1);
+	for (int z : zs) {
+		Raster8 msk = getPlane(z);
+		for (HSeg hs : fill) {
+			unsigned char *p = msk.scanLine(hs.y);
+			for (int x=hs.xl; x<=hs.xr; x++) {
+				if (p[x] != oldc) continue;
+				
+				zfills.resize(zfills.size()+1);
+				zfills[zfills.size()-1].first = z;
+				msk.findParticleFill(zfills[zfills.size()-1].second, x, hs.y, newc);
+			}
+		}
+	}
+}
+
+Particle3D Raster3D::findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char tmpc)
+{
+	Particle3D cell;
+	cell.fills.resize(d);
+	long long vol = 0;
+	
+	for (int z=bnd.zmin; z<=bnd.zmax; z++) {
+		for (int y=bnd.ymin; y<=bnd.ymax; y++) {
+			unsigned char *p = scanLine(y, z);
+			for (int x=bnd.xmin; x<=bnd.xmax; x++) {
+				if (p[x] != fg) continue;
+				
+				std::vector<std::pair<int, std::vector<HSeg>>> zfills;
+				long long zvol = findParticleFillsZ(zfills, x, y, z, tmpc);
+				if (zvol < vol) continue;
+				
+				cell.clear();
+				for (auto& el : zfills) {
+					std::vector<HSeg>& fill = cell.fills[el.first];
+					for (HSeg hs : el.second)
+						fill.push_back(hs);
+				}
+				vol = zvol;
+			}
+		}
+	}
+	
+	cell.update_from_fill();
+	return cell;
+}
+
+//----------------------------- Global Utilities --------------------------------------
+
+static bool cmp_nbr_pt_3d_by_z(const NbrPoint3D& a, const NbrPoint3D& b)
+{
+	if (a.dz < b.dz) return true;
+	return false;
+};
+std::vector<NbrPoint3D> hood_sorted_by_z(int nbsz)
+{
+	std::vector<NbrPoint3D> res;
+	
+	for (int j=0; j<nbsz; j++)
+		res.push_back(hood3d_pts[j]);
+	
+	std::sort(res.begin(), res.end(), cmp_nbr_pt_3d_by_z);
+	
+	return res;
+}
+

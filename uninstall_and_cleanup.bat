@@ -9,3 +9,6 @@ del imagetools_wrap.cpp 2>nul
 del laminb.py 2>nul
 del _laminb* 2>nul
 del laminb_wrap.cpp 2>nul
+del z01.py 2>nul
+del _z01* 2>nul
+del z01_wrap.cpp 2>nul

@@ -26,7 +26,8 @@ std::vector<std::vector<int>> detect_particles(unsigned char *mask, int hm, int 
 // mask - numpy array of shape=(height,width), dtype=uint8, 0-background, 255-foreground
 // Postprocess a mask containing detected cell borders, such as from REShAPE:
 //		fill small gaps in the borders using dilations/erosions, and thin the borders down to 1 pixel.
-void postprocess_particle_borders(unsigned char *mask, int hm, int wm);
+// expand - (optional) expand borders by 1 pixel if true (1-pix lines -> 3-pix lines).
+void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expand=false);
 
 // particles = imagetools.masks_to_particles(masks, [x_orig, y_orig, [minarea]])
 //
@@ -48,7 +49,13 @@ std::vector<std::vector<int>> masks_to_particles(unsigned char *ptmask, int npts
 const int POSTPROC_NONE = 0;
 const int POSTPROC_DNA = 1;
 const int POSTPROC_ACTIN = 2;
+const int POSTPROC_SANDPAPER = 0x10;
 
+// postproc - postprocessing flag.
+//		The POSTPROC_SANDPAPER value can be used alone or in combination with DNA/ACTIN (using '|'):
+// 			imagetools.assemble_ml(particles_3d, mask3d, csvfile, POSTPROC_SANDPAPER)
+// 			imagetools.assemble_ml(particles_3d, mask3d, csvfile, POSTPROC_SANDPAPER|POSTPROC_DNA)
+// 			imagetools.assemble_ml(particles_3d, mask3d, csvfile, POSTPROC_SANDPAPER|POSTPROC_ACTIN)
 void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 		unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *csvfile, int postproc=POSTPROC_NONE,
 		double good_iou=0.6, double ok_iou=0.5);
@@ -83,5 +90,27 @@ Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv
 //
 // * (xN,yN,zN) -- coordinates of a border pixel
 std::vector<std::vector<std::vector<int>>> border_pixels(int w, int h, int d, const char *csvfile);
+
+// imagetools.rs_tops_bottoms(mask3d)
+//		Complement RESHAPE_3D GT images with cell tops and bottoms, wherever there are detectable cells, i.e.
+//		cells recognized by imagetools.assemble_ml().
+//
+// mask3d - numpy array, shape=(num_frames, height, width), dtype=np.uint8; background=0, foreground=255
+//		as in Ground Truth for RERSHAPE_3D (foreground = cell borders).
+void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d);
+
+// imagetools.sandpaper_cells(w, h, d, in_csv, out_csv)
+//
+// w,h,d (int) - stack dimensions (width, height, number of frames)
+// in_csv (str) - path to .csv containing input cell data (ID,Frame,y,xL,xR)
+// out_csv (str) - path to .csv where to write output cell data (ID,Frame,y,xL,xR)
+void sandpaper_cells(int w, int h, int d, const char *in_csv, const char *out_csv);
+
+// imagetools.paint_cells(mask3d, in_csv)
+//		Paint cells into an empty numpy array, RPE Map style (gray=background, black=cell interiors, white=cell borders)
+//
+// mask3d - empty numpy array, shape=(num_frames, height, width), dtype=np.uint8.
+// in_csv (str) - path to .csv containing input cell data (ID,Frame,y,xL,xR)
+void paint_cells(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *in_csv);
 
 #endif

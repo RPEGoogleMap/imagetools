@@ -17,6 +17,7 @@ LaminB_Result lamin_b_analysis(unsigned short *data3d, int zd3d, int hd3d, int w
 
 struct LaminB_Result_2
 {
+	std::vector<double> dnarad;
 	std::vector<double> lmndev;
 	std::vector<double> volume;
 };

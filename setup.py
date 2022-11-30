@@ -47,14 +47,22 @@ _laminb = Extension("_laminb",
                    extra_compile_args = _complile_args,
                    )
 
+# Z01 segmentation and analysis
+_z01 = Extension("_z01",
+                   ["z01.i", "cpp/z01.cpp", "cpp/geom.cpp", "cpp/raster.cpp"],
+                   include_dirs = [numpy_include],
+                   swig_opts = ["-c++"],
+                   extra_compile_args = _complile_args,
+                   )
+
 # imagetools setup
 setup(  cmdclass    = {'build': NativeBuild},
         name        = "imagetools",
         description = "Native support for various image segmentation and analysis operations",
         author      = "Andrei Volkov",
-        version     = "1.0.1",
+        version     = "1.0.3",
         license     = "License.txt",
         install_requires=['numpy'],
-        ext_modules = [_imagetools, _laminb],
-        py_modules  = ["imagetools", "laminb"]
+        ext_modules = [_imagetools, _laminb, _z01],
+        py_modules  = ["imagetools", "laminb", "z01"]
         )

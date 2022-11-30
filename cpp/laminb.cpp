@@ -304,17 +304,31 @@ LaminB_Result_2 lamin_b_analysis_2(unsigned short *data3d, int zd3d, int hd3d, i
 	
 	delete gstack;
 	
+	Raster8 msk(wd3d, hd3d, NULL);
+	msk.fill(0);
+	
 	unsigned short ts = (unsigned short)thresh;
 	for (Particle3D& cell : cells) {
+		int ch = 0;
+		for (int z=0; size_t(z)<cell.fills.size(); z++)
+			if (!cell.fills[z].empty()) ++ch;
+		if (ch < 5) continue;
+		
+		double cx, cy, cz;
+		double dnar = calc_rad_3d(cell, xyscale, zscale, &cx, &cy, &cz);
+		res.dnarad.push_back(dnar);
+		
+		Particle3D xcell = expand_particle3d(msk, cell);
+
 		long long vol = 0;
 		double sdist = 0.;
 		double sval = 0.;
-		int ch = 0;
 		for (int z=0; size_t(z)<cell.fills.size(); z++) {
 			if (cell.fills[z].empty()) continue;
-			++ch;
-			vol += cell.fills[z].size();
 			for (HSeg& hs : cell.fills[z]) {
+				vol += (hs.xr - hs.xl +1);
+			}
+			for (HSeg& hs : xcell.fills[z]) {
 				for (int x=hs.xl; x<=hs.xr; x++) {
 					if (dstack.value(x, hs.y, z) < ts) continue;
 					double val = double(dstack.value(x, hs.y, z));
@@ -324,7 +338,6 @@ LaminB_Result_2 lamin_b_analysis_2(unsigned short *data3d, int zd3d, int hd3d, i
 				}
 			}
 		}
-		if (ch < 5) continue;
 		if (sval > 0.1) sdist = sqrt(sdist/sval);
 		res.lmndev.push_back(sdist);
 		res.volume.push_back(vol * pixvol);

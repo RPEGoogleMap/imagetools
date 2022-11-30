@@ -267,6 +267,14 @@ struct Particle3D
 		}
 		return true;
 	}
+	int realHeight()
+	{
+		int rh = 0;
+		for (int z=0; size_t(z)<fills.size(); z++) {
+			if (!fills[z].empty()) ++rh;
+		}
+		return rh;
+	}
 	long long update_from_fill();
 	long long overlay_volume(Particle3D &other);
 	int overlay_area2d(Particle &other, int z) {
