@@ -934,7 +934,7 @@ void Raster3D::paintParticleADD(Particle3D &pt, int incr)
 	}
 }
 
-void Raster3D::paintParticleInto(Particle3D &pt, unsigned char oldc, unsigned char newc)
+void Raster3D::paintParticleInto(Particle3D &pt, unsigned char newc, unsigned char oldc)
 {
 	for (int z=0; size_t(z)<pt.fills.size(); z++) {
 		for (HSeg &hs : pt.fills[z]) {

@@ -271,7 +271,7 @@ public:
 		*(buf +(plane_len*z + (long long)(w)*y + x)) = c;
 	}
 	unsigned char *scanLine(int y, int z) {
-		return buf +(plane_len*z + (long long)(w)*y);
+		return buf + (plane_len*z + (long long)(w)*y);
 	}
 	Boundary3D getBoundary() { return Boundary3D(0, 0, 0, w-1, h-1, d-1); }
 	void clip(Boundary3D &bnd, int bord=0) {
@@ -301,7 +301,7 @@ public:
 	void chopBorders(unsigned char fg, unsigned char bk, unsigned char bordc, int nbsz=HOOD3D_6);
 	void paintParticle(Particle3D &pt, unsigned char c);
 	void paintParticleADD(Particle3D &pt, int incr);
-	void paintParticleInto(Particle3D &pt, unsigned char oldc, unsigned char newc);
+	void paintParticleInto(Particle3D &pt, unsigned char newc, unsigned char oldc);
 	void forceSeparation(Particle3D &pt, unsigned char fg, unsigned char bk, unsigned char tmpc);
 	void forceBorder(Particle3D& pt, unsigned char fg, unsigned char bordc,
 			unsigned char tmp_fg, unsigned char tmp_bordc);

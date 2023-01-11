@@ -372,7 +372,32 @@ static void extrapolate_particle_3d(Raster3D& mstack, Particle3D& pt, int z0, in
 	msk.rescanParticleFill(bnd, pt.fills[z1], 0x50);
 }
 
-void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
+static void expand_borders_3d(
+	Raster3D& mstack,
+	unsigned char oldc, unsigned char newc, unsigned char bordc,
+	int nbsz=HOOD3D_18)
+{
+	for (int z=0; z<mstack.d; z++) {
+		for (int y=1; y<mstack.h-1; y++) {
+			for (int x=1; x<mstack.w-1; x++) {
+				if (mstack.value(x, y, z) != oldc) continue;
+				
+				for (int j=1; j<nbsz; j++) {
+					int z0 = z + hood3d_pts[j].dz;
+					if (z0 < 0 || z0 >= mstack.d) continue;
+					int y0 = y + hood3d_pts[j].dy;
+					int x0 = x + hood3d_pts[j].dx;
+					if (mstack.value(x0, y0, z0) == bordc) {
+						mstack.setValue(x, y, z, newc);
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, int xcv)
 {
 	Raster3D src_mstack(wm3d, hm3d, zm3d, mask3d);
 	AssemblerML aml(NULL, zm3d, hm3d, wm3d);
@@ -390,6 +415,8 @@ void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
 	aml.cells_from_seeds();
 	aml.fill_gaps();
 	
+	memcpy(aml.mstack.buf, src_mstack.buf, aml.mstack.len);
+	
 //	int painted = 0;
 	for (Particle3D& pt : aml.cells) {
 		if (pt.realHeight() > 3) {
@@ -401,7 +428,11 @@ void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
 	}
 //	std::cout << "Painted " << painted << " of " << aml.cells.size() << std::endl;
 	
-	for (Particle3D& pt : aml.cells) {
+	Particle3D xpt;
+	xpt.fills.resize(src_mstack.d);
+	
+	for (size_t idx=0; idx<aml.cells.size(); idx++) {
+		Particle3D& pt = aml.cells[idx];
 		src_mstack.paintParticle(pt, 0x50);
 		
 		int zl=-1, zh;
@@ -410,41 +441,36 @@ void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
 			if (zl < 0) zl = z;
 			zh = z;
 		}
+		if (zl < 0) continue;
 		
-		if (zl > 0) {
-			extrapolate_particle_3d(src_mstack, pt, zl, zl-1);
-			--zl;
+		if (zl == 0) {
+			xpt.add_fill(pt.fills[zl], zl);
+		}
+		if (zh+1 == src_mstack.d) {
+			xpt.add_fill(pt.fills[zh], zh);
 		}
 		if (zl > 0) {
 			extrapolate_particle_3d(src_mstack, pt, zl, zl-1);
 			--zl;
+			if (zl == 0)
+				xpt.add_fill(pt.fills[zl], zl);
+		}
+		if (zl > 0) {
+			extrapolate_particle_3d(src_mstack, pt, zl, zl-1);
+			--zl;
+			xpt.add_fill(pt.fills[zl], zl);
 		}
 		if (zh+1 < src_mstack.d) {
 			extrapolate_particle_3d(src_mstack, pt, zh, zh+1);
 			++zh;
+			xpt.add_fill(pt.fills[zh], zh);
 		}
 		
 		src_mstack.paintParticle(pt, 0x40);
 	}
 	
-	for (int z=0; z<src_mstack.d; z++) {
-		for (int y=1; y<src_mstack.h-1; y++) {
-			for (int x=1; x<src_mstack.w-1; x++) {
-				if (src_mstack.value(x, y, z) != 0) continue;
-				
-				for (int j=1; j<HOOD3D_18; j++) {
-					int z0 = z + hood3d_pts[j].dz;
-					if (z0 < 0 || z0 >= src_mstack.d) continue;
-					int y0 = y + hood3d_pts[j].dy;
-					int x0 = x + hood3d_pts[j].dx;
-					if (src_mstack.value(x0, y0, z0) == 0x40) {
-						src_mstack.setValue(x, y, z, 0x80);
-						break;
-					}
-				}
-			}
-		}
-	}
+	expand_borders_3d(src_mstack, 0, 0x80, 0x40, HOOD3D_18);
+
 	for (int z=0; z<src_mstack.d; z++) {
 		Raster8 msk = src_mstack.getPlane(z);
 		msk.expandBorders(0x80, 0xA0, HOOD_SIZE_MOORE, 0);
@@ -453,6 +479,21 @@ void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d)
 	}
 	
 	src_mstack.replaceColorInv(0xFF, 0);
+
+	if (xcv != 0xFF) {
+		src_mstack.paintParticle(xpt, 0x40);
+		expand_borders_3d(src_mstack, 0xFF, 0x7F, 0x40, HOOD3D_18);
+
+		for (int z=0; z<src_mstack.d; z++) {
+			Raster8 msk = src_mstack.getPlane(z);
+			msk.expandBorders(0x7F, 0xA0, HOOD_SIZE_FATCROSS, 0xFF);
+			msk.replaceColor(0xA0, 0x7F);
+		}
+		
+		src_mstack.replaceColor(0x40, 0);
+		if (xcv != 0x7F)
+			src_mstack.replaceColor(0x7F, (unsigned char)xcv);
+	}
 }
 
 void sandpaper_cells(int w, int h, int d, const char *in_csv, const char *out_csv)

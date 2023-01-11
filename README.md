@@ -228,7 +228,7 @@ The object tuples contain coordinate tuples of size 3 (x, y, z), one entry per b
 
 -------
 
-**`imagetools.rs_tops_bottoms(mask3d)`** : Add cell tops and bottoms to REShAPE3D Ground Truth data.
+**`imagetools.rs_tops_bottoms(mask3d[, xcolor])`** : Add cell tops and bottoms to REShAPE3D Ground Truth data.
 
 The procedure tries to identify cell objects (using `imagetools.assemble_ml()`) and "complement" cell borders
 at cell tops and bottoms.
@@ -240,10 +240,12 @@ Parameters:
 - `mask3d` : a numpy array of shape (num_frames, height, width) and dtype=numpy.uint8, the Ground Truth for
 REShAPE3D obtained by REShAPE-ing and post-processing individual frames in Actin channel. 0 = background,
 255 = foreground (cell walls, mostly vertical).
+- `xcolor` : an optional int specifying pixel value for extrapolated cell tops and bottoms.
+Default value is 127 (0x7F). Invoke as `imagetools.rs_tops_bottoms(mask3d, 0xFF)` to keep the output mask3d binary.
 
 Returns:
 
-- None, `mask3d` is updated with cell tops and bottoms.
+- None, `mask3d` is updated with cell tops and bottoms, painted with `xcolor` pixel value.
 
 -------
 

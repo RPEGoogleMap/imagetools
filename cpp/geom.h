@@ -289,6 +289,11 @@ struct Particle3D
 		if (z > bnd.zmax) bnd.zmax = z;
 		bnd.combo2d(ptc.bnd);
 	}
+	void add_fill(std::vector<HSeg>& fill, int z) {
+		std::vector<HSeg>& my_fill = fills[z];
+		for (HSeg& hs : fill)
+			my_fill.push_back(hs);
+	}
 	double iou_score(int max_gap=3);
 };
 

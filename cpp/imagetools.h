@@ -97,7 +97,9 @@ std::vector<std::vector<std::vector<int>>> border_pixels(int w, int h, int d, co
 //
 // mask3d - numpy array, shape=(num_frames, height, width), dtype=np.uint8; background=0, foreground=255
 //		as in Ground Truth for RERSHAPE_3D (foreground = cell borders).
-void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d);
+// xcv (int) - optional (default 127) pixel value for extrapolated cell parts.
+// 		On return, mask3d updated with extrapolated cell tops and bottoms painrted with color specified by xcv.
+void rs_tops_bottoms(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, int xcv=0x7F);
 
 // imagetools.sandpaper_cells(w, h, d, in_csv, out_csv)
 //
