@@ -967,7 +967,7 @@ void Raster3D::forceSeparation(Particle3D &pt, unsigned char fg, unsigned char b
 			}
 		}
 	}
-	paintParticleInto(pt, tmpc, fg);
+	paintParticleInto(pt, fg, tmpc);
 }
 
 void Raster3D::forceBorder(Particle3D& pt, unsigned char fg, unsigned char bordc,
@@ -1060,7 +1060,7 @@ void Raster3D::sandPaperCells(std::vector<Particle3D> &cells)
 		Particle3D& scell = cells[i];
 		Particle3D& tcell = cells[j];
 		Boundary3D bnd = scell.bnd;
-		paintParticleInto(scell, 0, 0x50);
+		paintParticleInto(scell, 0x50, 0);
 		
 		tcell = findBiggestCell(bnd, 0x50, 0xFF, 0x55);
 		paintParticle(tcell, 0x50);
