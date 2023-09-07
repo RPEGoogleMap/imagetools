@@ -90,6 +90,12 @@ public:
 		if (sscanf(crow[idx].c_str(), "%d", &res) == 1) return res;
 		return dflt;
 	}
+	long long GetLongLong(int idx, long long dflt=0ll) {
+		if (idx<0 || size_t(idx)>=crow.size()) return dflt;
+		long long res;
+		if (sscanf(crow[idx].c_str(), "%lld", &res) == 1) return res;
+		return dflt;
+	}
 	double GetDouble(int idx, double dflt=NaN) {
 		if (idx<0 || size_t(idx)>=crow.size()) return dflt;
 		double res;
@@ -148,6 +154,10 @@ public:
 		modified = true;
 	}
 	void append(int v) {
+		crow.push_back(std::to_string(v));
+		modified = true;
+	}
+	void append(long long v) {
 		crow.push_back(std::to_string(v));
 		modified = true;
 	}

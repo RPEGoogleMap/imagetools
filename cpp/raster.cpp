@@ -36,17 +36,27 @@ void Histogram::finish()
 	}
 }
 
-void Histogram::add_row16(unsigned short *buf, int len)
+void Histogram::add_row16(unsigned short *buf, int len, unsigned char *mask)
 {
 	if (state != 0 && state != 1) init();
 	state = 1;
-	for (int i=0; i<len; i++) {
-		int v = int(uint64(buf[i]) * uint64(nbins) / 0x10000L);
-		if (hilvl < v) hilvl = v;
-		++bins[v];
+	if (!mask) {
+		for (int i=0; i<len; i++) {
+			int v = int(uint64(buf[i]) * uint64(nbins) / 0x10000L);
+			if (hilvl < v) hilvl = v;
+			++bins[v];
+		}
+		if (len > 0)
+			ccount += len;
+	} else {
+		for (int i=0; i<len; i++) {
+			if (!mask[i]) continue;
+			int v = int(uint64(buf[i]) * uint64(nbins) / 0x10000L);
+			if (hilvl < v) hilvl = v;
+			++bins[v];
+			++ccount;
+		}
 	}
-	if (len > 0)
-		ccount += len;
 }
 
 void Histogram::add_row8(unsigned char *buf, int len)
@@ -134,27 +144,54 @@ unsigned short Raster16::avg_value(int x, int y, int nbsz)
 	return (unsigned short)(sumv / nbsz);
 }
 
-void Raster16::centerMass(int x0, int y0, int nb, double *p_xc, double *p_yc)
+void Raster16::centerMass(int x0, int y0, int nbsz, double *p_xc, double *p_yc)
 {
 	double xc = 0., yc = 0.;
 	double mass = 0.;
-	for (int y=y0-nb; y<=y0+nb; y++) {
-		unsigned short *p = scanLine(y) + (x0-nb);
-		for (int x=x0-nb; x<=x0+nb; x++) {
-			double v = double(*p++);
-			mass += v;
-			xc += v * (x+0.5);
-			yc += v * (y+0.5);
-		}
+	for (int j=0; j<nbsz; j++) {
+		NbrPoint & npt = hood_pts[j];
+		int x = x0 + npt.dx;
+		int y = y0 + npt.dy;
+		double v = double(value(x, y));
+		mass += v;
+		xc += v * (x+0.5);
+		yc += v * (y+0.5);
 	}
 	if (mass < SEGM_EPS) {
-		xc = yc = 0.;
+		xc = double(x0);
+		yc = double(y0);
 	} else {
 		xc = xc / mass - 0.5;
 		yc = yc / mass - 0.5;
 	}
 	*p_xc = xc;
 	*p_yc = yc;
+}
+
+double Raster16::centerMass(std::vector<HSeg> &fill, double *p_xc, double *p_yc)
+{
+	double xc = 0., yc = 0.;
+	double mass = 0.;
+	int cnt = 0;
+	for (HSeg& hs : fill) {
+		for (int x=hs.xl; x<=hs.xr; x++) {
+			double v = double(value(x, hs.y));
+			mass += v;
+			++cnt;
+			xc += v * x;
+			yc += v * hs.y;
+		}
+	}
+	if (cnt > 0 && mass >= SEGM_EPS) {
+		xc /= mass;
+		yc /= mass;
+		mass /= cnt;
+	} else {
+		xc = yc = mass = 0.;
+	}
+	*p_xc = xc;
+	*p_yc = yc;
+	return mass;
 }
 
 bool Raster16::is_local_max(int x, int y, int nbsz)
@@ -1062,7 +1099,7 @@ void Raster3D::sandPaperCells(std::vector<Particle3D> &cells)
 		Boundary3D bnd = scell.bnd;
 		paintParticleInto(scell, 0x50, 0);
 		
-		tcell = findBiggestCell(bnd, 0x50, 0xFF, 0x55);
+		tcell = findBiggestCell(bnd, 0x50, 0x55);
 		paintParticle(tcell, 0x50);
 		replaceColor(bnd, 0x55, 0xFF);
 		expandBorders(bnd, 0x50, 0xFF, 0x55, HOOD3D_26);
@@ -1086,6 +1123,29 @@ long long Raster3D::rescanParticle(Particle3D& cell, unsigned char c)
 	for (int z=cell.bnd.zmin; z<=cell.bnd.zmax; z++) {
 		Raster8 msk = getPlane(z);
 		msk.rescanParticleFill(b2, cell.fills[z], c);
+	}
+	
+	return cell.update_from_fill();
+}
+
+long long Raster3D::detectParticle(Particle3D& cell, int x0, int y0, int z0, unsigned char newc)
+{
+	cell.clear();
+	cell.fills.resize(d);
+	
+	std::vector<std::pair<int, std::vector<HSeg>>> zfills;
+	findParticleFillsZ(zfills, x0, y0, z0, newc);
+	for (auto& zf : zfills) {
+		cell.add_fill(zf.second, zf.first);
+	}
+	
+	for (std::vector<HSeg>& fill : cell.fills) {
+		if (fill.empty()) continue;
+		std::sort(fill.begin(), fill.end(), [](HSeg& a, HSeg& b) {
+			if (a.y < b.y) return true;
+			if (a.y > b.y) return false;
+			return (a.xl < b.xl);
+		});
 	}
 	
 	return cell.update_from_fill();
@@ -1141,7 +1201,7 @@ void Raster3D::findFillZSlices(std::vector<std::pair<int, std::vector<HSeg>>>& z
 	}
 }
 
-Particle3D Raster3D::findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char tmpc)
+Particle3D Raster3D::findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char tmpc)
 {
 	Particle3D cell;
 	cell.fills.resize(d);
@@ -1171,6 +1231,52 @@ Particle3D Raster3D::findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned
 	cell.update_from_fill();
 	return cell;
 }
+
+//----------------------------- Raster16_3D --------------------------------------
+
+unsigned short Raster16_3D::otsu()
+{
+	Histogram hist(4096);
+	for (int z=0; z<d; z++) {
+		for (int y=0; y<h; y++) {
+			hist.add_row16(scanLine(y, z), w);
+		}
+	}
+	return hist.otsu16();
+}
+
+double Raster16_3D::centerMass(Particle3D& cell, double *p_xc, double *p_yc, double *p_zc)
+{
+	double xc = 0., yc = 0., zc = 0.;
+	double mass = 0.;
+	long long cnt = 0;
+	for (int z=0; size_t(z)<cell.fills.size(); z++) {
+		for (HSeg& hs : cell.fills[z]) {
+			for (int x=hs.xl; x<=hs.xr; x++) {
+				double v = double(value(x, hs.y, z));
+				mass += v;
+				++cnt;
+				xc += v * x;
+				yc += v * hs.y;
+				zc += v * z;
+			}
+		}
+	}
+	
+	if (cnt > 0 && mass >= SEGM_EPS) {
+		xc /= mass;
+		yc /= mass;
+		zc /= mass;
+		mass /= cnt;
+	} else {
+		xc = yc = zc = mass = 0.;
+	}
+	*p_xc = xc;
+	*p_yc = yc;
+	*p_zc = zc;
+	return mass;
+}
+
 
 //----------------------------- Global Utilities --------------------------------------
 

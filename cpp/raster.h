@@ -27,7 +27,7 @@ public:
 	unsigned short otsu16() { return (unsigned short)(uint64(otsu_bin()) * 0x10000L / uint64(nbins)); }
 	unsigned char otsu8() { return (unsigned char)(uint64(otsu_bin()) * 0x100L / uint64(nbins)); }
 
-	void add_row16(unsigned short *buf, int len);
+	void add_row16(unsigned short *buf, int len, unsigned char *mask=NULL);
 	void add_row8(unsigned char *buf, int len);
 	int otsu_bin();
 	// 16-bit level at which pixel count <pcount> is reached
@@ -119,6 +119,7 @@ struct Raster16 {
 	unsigned short *scanLine(int y) { return buf + ((long long)(w) * y); }
 	unsigned short value(int x, int y) { return *(scanLine(y) + x); }
 	void setValue(int x, int y, unsigned short v) { *(scanLine(y) + x) = v; }
+	void setValue(const Point& p, unsigned short v) { *(scanLine(p.y) + p.x) = v; }
 	void paintParticle(Particle &ptc, unsigned short c) {
 		paintParticleFill(ptc.fill, c);
 	}
@@ -128,7 +129,8 @@ struct Raster16 {
 	
 	double mean_std(double *p_std=NULL);
 	unsigned short avg_value(int x, int y, int nbsz=HOOD_SIZE_MOORE);
-	void centerMass(int x0, int y0, int nb, double *p_xc, double *p_yc);
+	void centerMass(int x0, int y0, int nbsz, double *p_xc, double *p_yc);
+	double centerMass(std::vector<HSeg> &fill, double *p_xc, double *p_yc);
 	bool is_local_max(int x, int y, int nbsz=HOOD_SIZE_FATCROSS);
 	int local_rank(int x, int y, int nbsz=HOOD_SIZE_RAD3);
 	void paintParticleFill(std::vector<HSeg> &fill, unsigned short c);
@@ -167,6 +169,7 @@ public:
 	void fill(unsigned char c) { memset(buf, c, len); }
 	unsigned char value(int x, int y) { return *(scanLine(y) + x); }
 	void setValue(int x, int y, unsigned char c) { *(scanLine(y)+x) = c; }
+	void setValue(const Point& p, unsigned char c) { *(scanLine(p.y) + p.x) = c; }
 	void setMaxValue(int x, int y, unsigned char c) {
 		unsigned char *p = scanLine(y) + x;
 		if (*p < c) *p = c;
@@ -309,12 +312,13 @@ public:
 	void rescanShrunkCells(std::vector<Cell> &cells, unsigned char fg, unsigned char tmpc);
 	void sandPaperCells(std::vector<Particle3D> &cells);
 	long long rescanParticle(Particle3D& cell, unsigned char c);
+	long long detectParticle(Particle3D& cell, int x0, int y0, int z0, unsigned char newc);
 protected:
 	long long findParticleFillsZ(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
 			int x0, int y0, int z0, unsigned char newc);
 	void findFillZSlices(std::vector<std::pair<int, std::vector<HSeg>>>& zfills,
 			int z0, std::vector<HSeg>& fill, unsigned char oldc, unsigned char newc);
-	Particle3D findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char bk, unsigned char tmpc);
+	Particle3D findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned char tmpc);
 };
 
 class Raster16_3D
@@ -324,14 +328,24 @@ public:
 	unsigned short *buf;
 	long long len;
 	long long plane_len;
+	bool is_temp;
 	//
 	Raster16_3D(int _w, int _h, int _d, unsigned short *_buf) :
 			w(_w), h(_h), d(_d), buf(_buf) {
 		plane_len = (long long)(w) * h;
 		len = plane_len * d;
+		if (!buf) {
+			buf = new unsigned short[len];
+			is_temp = true;
+		} else {
+			is_temp = false;
+		}
 	}
-	virtual ~Raster16_3D() {}
+	virtual ~Raster16_3D() { if (is_temp) delete [] buf; }
 	//
+	void fill(unsigned short c) {
+		for (long long i=0; i<len; i++) buf[i] = c;
+	}
 	Raster16 getPlane(int z) {
 		return Raster16(w, h, buf + (plane_len *z));
 	}
@@ -342,6 +356,8 @@ public:
 	unsigned short *scanLine(int y, int z) {
 		return buf +(plane_len*z + (long long)(w)*y);
 	}
+	unsigned short otsu();
+	double centerMass(Particle3D& cell, double *p_xc, double *p_yc, double *p_zc);
 };
 
 std::vector<NbrPoint3D> hood_sorted_by_z(int nbsz=HOOD3D_26);

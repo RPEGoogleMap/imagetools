@@ -21,6 +21,10 @@
 typedef unsigned long long uint64;
 #endif
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 const int HOOD_SIZE_NEUMANN = 5;
 const int HOOD_SIZE_MOORE = 9;
 const int HOOD_SIZE_FATCROSS = 21;
@@ -35,7 +39,6 @@ struct Point
 	int x, y;
 	Point() {}
 	Point(int _x, int _y) : x(_x), y(_y) {}
-	// Point(Point &p) : x(p.x), y(p.y) {}
 	double dist(Point &p1) {
 		double dx(x - p1.x);
 		double dy(y - p1.y);
@@ -57,6 +60,10 @@ struct Point
 	}
 	bool equals(Point &p1) {
 		return x==p1.x && y==p1.y;
+	}
+	bool less_than(Point& other) {
+		if (y != other.y) return y < other.y;
+		return x < other.x;
 	}
 };
 
@@ -241,6 +248,9 @@ struct Boundary3D
 	bool IsInside(int x, int y, int z) {
 		return x>=xmin && x<=xmax && y>=ymin && y<=ymax && z>=zmin && z<=zmax;
 	}
+	bool IsInside(Point3D& p) {
+		return p.x>=xmin && p.x<=xmax && p.y>=ymin && p.y<=ymax && p.z>=zmin && p.z<=zmax;
+	}
 };
 
 struct NbrPoint3D
@@ -275,6 +285,14 @@ struct Particle3D
 		}
 		return rh;
 	}
+	long long volume() {
+		long long v = 0;
+		for (std::vector<HSeg> &fill : fills) {
+			for (HSeg& hs : fill)
+				v += (long long)(hs.xr - hs.xl + 1);
+		}
+		return v;
+	}
 	long long update_from_fill();
 	long long overlay_volume(Particle3D &other);
 	int overlay_area2d(Particle &other, int z) {
@@ -295,6 +313,14 @@ struct Particle3D
 			my_fill.push_back(hs);
 	}
 	double iou_score(int max_gap=3);
+	bool contains(Point3D& p) {
+		for (HSeg& hs : fills[p.z]) {
+			if (p.y==hs.y && p.x>=hs.xl && p.x<=hs.xr)
+				return true;
+		}
+		return false;
+	}
+	Point3D center_mass();
 };
 
 struct Cell : public Particle3D
@@ -371,6 +397,12 @@ inline int fill_area(std::vector<HSeg> & fill) {
 	return a;
 }
 
+std::vector<Point> straight_line_path(int x0, int y0, int x1, int y1);
+std::vector<Point> circle_path(int xm, int ym, int r);
+std::vector<HSeg> circle_fill(int xm, int ym, int r);
+std::vector<Point> ellipse_path(int xm, int ym, int a, int b);
+std::vector<HSeg> ellipse_fill(int xm, int ym, int a, int b);
+
 void reverse_path(std::vector<Point> & path);
 void remove_lead_from_path(std::vector<Point> & path, size_t k);
 double path_length(std::vector<Point> & path);
@@ -388,6 +420,8 @@ void write_cell_data(std::vector<Particle3D> &cells, const char *outfn);
 void write_cell_data(std::vector<Cell> &cells, const char *outfn);
 int read_cell_data(const char *infn, std::vector<Particle3D> &cells, int w, int h, int d);
 int read_particle_data(const char *infn, std::vector<Particle> &particles, int w, int h);
+
+std::vector<NbrPoint3D> clipped_zhood(int z, int d, int j0=0, int nbsz=HOOD3D_26);
 
 #ifndef __geom_main__
 extern NbrPoint hood_pts[37];

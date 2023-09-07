@@ -36,6 +36,7 @@
 
 namespace std {
    %template(vectori) vector<int>;
+   %template(vectorl) vector<long long>;
    %template(vectord) vector<double>;
    %template(vectori2d) vector<vector<int>>;
    %template(vectori3d) vector<vector<vector<int>>>;

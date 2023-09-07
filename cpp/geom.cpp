@@ -329,6 +329,27 @@ double Particle3D::iou_score(int max_gap)
 	return sc;
 }
 
+Point3D Particle3D::center_mass()
+{
+	double xc=0., yc=0., zc=0.;
+	long long cnt = 0;
+	for (int z=0; size_t(z)<fills.size(); z++) {
+		for (HSeg& hs : fills[z]) {
+			for (int x=hs.xl; x<=hs.xr; x++) {
+				zc += z;
+				yc += hs.y;
+				xc += x;
+				++cnt;
+			}
+		}
+	}
+	if (cnt > 0) {
+		xc /= cnt;
+		yc /= cnt;
+		zc /= cnt;
+	}
+	return Point3D(int(xc), int(yc), int(zc));
+}
 
 //----------------------------- Cell --------------------------------
 
@@ -361,6 +382,230 @@ long long Cell::update_from_fill()
 }
 
 //----------------------------- Global utility functions --------------------------------
+
+//--- Line/Circle/Ellipse drawings based on: http://members.chello.at/~easyfilter/Bresenham.pdf
+std::vector<Point> straight_line_path(int x0, int y0, int x1, int y1)
+{
+	std::vector<Point> res;
+	
+	int dx = x1 - x0;
+	int sx = 1;
+	if (dx < 0) {
+		dx = -dx;
+		sx = -1;
+	}
+	int dy = y1 - y0;
+	int sy = 1;
+	if (dy < 0) sy = -1;
+	else dy = -dy;
+	int err = dx + dy;
+	int err2;
+	
+	while (true) {
+		res.push_back(Point(x0, y0));
+		err2 = err + err;
+		if (err2 >= dy) {
+			if (x0 == x1) break;
+			err += dy;
+			x0 += sx;
+		}
+		if (err2 <= dx) {
+			if (y0 == y1) break;
+			err += dx;
+			y0 += sy;
+		}
+	}
+	
+	return res;
+}
+
+std::vector<Point> circle_path(int xm, int ym, int r)
+{
+	std::vector<Point> res;
+	std::vector<Point> q1;
+	std::vector<Point> q2;
+	std::vector<Point> q3;
+	std::vector<Point> q4;
+	
+	int x = -r;
+	int y = 0;
+	int err = 2 - (r+r);
+	do {
+		q1.push_back(Point(xm-x, ym+y));
+		q2.push_back(Point(xm-y, ym-x));
+		q3.push_back(Point(xm+x, ym-y));
+		q4.push_back(Point(xm+y, ym+x));
+		r = err;
+		if (r <= y) err += ++y*2+1;
+		if (r > x || err > y)
+			err += ++x*2+1;
+	} while (x < 0);
+	
+	res.insert(res.end(), q1.begin(), q1.end());
+	res.insert(res.end(), q2.begin(), q2.end());
+	res.insert(res.end(), q3.begin(), q3.end());
+	res.insert(res.end(), q4.begin(), q4.end());
+	return res;
+}
+
+std::vector<HSeg> circle_fill(int xm, int ym, int r)
+{
+	std::vector<HSeg> res;
+	std::vector<Point> pts;
+
+	int x = -r;
+	int y = 0;
+	int err = 2 - (r+r);
+	do {
+		pts.push_back(Point(xm-x, ym+y));
+		pts.push_back(Point(xm-y, ym-x));
+		pts.push_back(Point(xm+x, ym-y));
+		pts.push_back(Point(xm+y, ym+x));
+		r = err;
+		if (r <= y) err += ++y*2+1;
+		if (r > x || err > y)
+			err += ++x*2+1;
+	} while (x < 0);
+	
+	std::sort(pts.begin(), pts.end(), [](Point &a, Point &b) {
+		return a.less_than(b);   
+	});
+	
+	if (!pts.empty()) {
+		Point& p0 = pts[0];
+		HSeg hs(p0.y, p0.x, p0.x);
+		for (Point& p : pts) {
+			if (p.y != hs.y) {
+				res.push_back(hs);
+				hs = HSeg(p.y, p.x, p.x);
+			} else {
+				if (p.x < hs.xl) hs.xl = p.x;
+				if (p.x > hs.xr) hs.xr = p.x;
+			}
+		}
+		res.push_back(hs);
+	}
+	
+	return res;
+}
+
+std::vector<Point> ellipse_path(int xm, int ym, int a, int b)
+{
+	std::vector<Point> res;
+	std::vector<Point> q1;
+	std::vector<Point> q2;
+	std::vector<Point> q3;
+	std::vector<Point> q4;
+	
+	long long x = -a;
+	long long y = 0;
+	long long e2 = b;
+	long long dx = (1+2*x)*e2*e2;
+	long long dy = x*x;
+	long long err = dx+dy;
+	
+	do {
+		q1.push_back(Point(int(xm-x), int(ym+y)));
+		q2.push_back(Point(int(xm+x), int(ym+y)));
+		q3.push_back(Point(int(xm+x), int(ym-y)));
+		q4.push_back(Point(int(xm-x), int(ym-y)));
+		e2 = 2*err;
+		if (e2 >= dx) {
+			x++;
+			err += dx += 2*(long)b*b;
+		}
+		if (e2 <= dy) {
+			y++;
+			err += dy += 2*(long)a*a;
+		}
+	} while (x <= 0);
+	
+	if (q1.back().equals(q2.back()))
+		q2.resize(q2.size()-1);
+	if (q3.back().equals(q4.back()))
+		q4.resize(q4.size()-1);
+	
+	std::reverse(q2.begin(), q2.end());
+	std::reverse(q4.begin(), q4.end());
+	
+	if (q2.back().equals(q3[0]))
+		q2.resize(q2.size()-1);
+	if(!q4.empty() && q4.back().equals(q1[0]))
+		q4.resize(q4.size()-1);
+	
+	while (y++ < b) {
+		q1.push_back(Point(xm, int(ym+y)));
+		q3.push_back(Point(xm, int(ym-y)));
+	}
+	
+	res.insert(res.end(), q1.begin(), q1.end());
+	res.insert(res.end(), q2.begin(), q2.end());
+	res.insert(res.end(), q3.begin(), q3.end());
+	res.insert(res.end(), q4.begin(), q4.end());
+
+//	std::cout << "Result" << std::endl;
+//	for (Point& p : res)
+//		std::cout << p.x << "," << p.y << std::endl;
+
+	return res;
+}
+
+std::vector<HSeg> ellipse_fill(int xm, int ym, int a, int b)
+{
+	std::vector<HSeg> res;
+	std::vector<Point> pts;
+	
+	long long x = -a;
+	long long y = 0;
+	long long e2 = b;
+	long long dx = (1+2*x)*e2*e2;
+	long long dy = x*x;
+	long long err = dx+dy;
+	
+	do {
+		pts.push_back(Point(int(xm-x), int(ym+y)));
+		pts.push_back(Point(int(xm+x), int(ym+y)));
+		pts.push_back(Point(int(xm+x), int(ym-y)));
+		pts.push_back(Point(int(xm-x), int(ym-y)));
+		e2 = 2*err;
+		if (e2 >= dx) {
+			x++;
+			err += dx += 2*((long long)b)*b;
+		}
+		if (e2 <= dy) {
+			y++;
+			err += dy += 2*((long long)a)*a;
+		}
+	} while (x <= 0);
+	
+	while (y++ < b) {
+		pts.push_back(Point(xm, int(ym+y)));
+		pts.push_back(Point(xm, int(ym-y)));
+	}
+
+	std::sort(pts.begin(), pts.end(), [](Point &a, Point &b) {
+		return a.less_than(b);   
+	});
+	
+	if (!pts.empty()) {
+		Point& p0 = pts[0];
+		HSeg hs(p0.y, p0.x, p0.x);
+		for (Point& p : pts) {
+			if (p.y != hs.y) {
+				res.push_back(hs);
+				hs = HSeg(p.y, p.x, p.x);
+			} else {
+				if (p.x < hs.xl) hs.xl = p.x;
+				if (p.x > hs.xr) hs.xr = p.x;
+			}
+		}
+		res.push_back(hs);
+	}
+	
+	return res;
+}
+
+//---
 
 void reverse_path(std::vector<Point> & path)
 {
@@ -760,3 +1005,16 @@ NbrPoint3D hood3d_pts[27] = {
 	{-1, 1, -1}
 };
 
+//--------------------- Neighborhood Utilities --------------------------------
+
+std::vector<NbrPoint3D> clipped_zhood(int z, int d, int j0, int nbsz)
+{
+	std::vector<NbrPoint3D> res;
+	for (int j=j0; j<nbsz; j++) {
+		NbrPoint3D pt = hood3d_pts[j];
+		int zz = z + pt.dz;
+		if (zz >= 0 && zz < d)
+			res.push_back(pt);
+	}
+	return res;
+}
