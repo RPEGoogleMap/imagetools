@@ -3,6 +3,7 @@
 #include "raster.h"
 #include "ml3d.h"
 #include "comparator.h"
+#include "multifit.h"
 #define __MAIN__
 #include "imagetools.h"
 
@@ -276,6 +277,110 @@ void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 	write_cell_data(aml.cells, csvfile);
 }
 
+void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
+		unsigned short *data, int hd, int wd, const char *csvfile, int postproc)
+{
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wd, hd, NULL);
+	
+	std::vector<Slice> slices(particles_2d.size());
+	for (int idx=0; size_t(idx)<particles_2d.size(); idx++) {
+		std::vector<int>& pt2d = particles_2d[idx];
+		Slice& ptc = slices[idx];
+		for (size_t i=0; i<pt2d.size(); i+=3) {
+			if (i+2 >= pt2d.size()) break;
+			ptc.fill.push_back(HSeg(pt2d[i], pt2d[i+1], pt2d[i+2]));
+		}
+		ptc.area = ptc.update_from_fill();
+		
+		for (int j=0; j<idx; j++) {
+			Slice& ptc0 = slices[j];
+			if (ptc0.fill.empty()) continue;
+			if (!ptc0.bnd.intersects(ptc.bnd)) continue;
+			int ovl = ptc0.overlay_area(ptc);
+			double iou = double(ovl) / double(ptc.area + ptc0.area - ovl);
+			if (iou >= 0.25) {
+				if (scores[j] >= scores[idx]) {
+					ptc.clear();
+					break;
+				} else {
+					ptc0.clear();
+				}
+			}
+		}
+	}
+	
+	msk.fill(0);
+	msk.fillBorder(0x10);
+	for (Slice& ptc : slices) {
+		if (ptc.fill.empty()) continue;
+		msk.paintParticleInto(ptc, 0x60, 0);
+		ptc.area = msk.rescanParticle(ptc, 0x60);
+		msk.paintParticle(ptc, 0x80);
+	}
+	
+	// Post-processing
+	if (postproc & POSTPROC_DNA) {
+		for (long long i=0; i<msk.len; i++) {
+			if (msk.buf[i] == 0 && dat.buf[i] != 0)
+				msk.buf[i] = 0x40;
+		}
+		for (Slice& ptc : slices) {
+			if (ptc.fill.empty()) continue;
+			msk.paintParticle(ptc, 0xC0);
+			ptc.bnd.expand(2);
+			msk.clip(ptc.bnd, 1);
+			msk.expandBordersInto(ptc.bnd, 0xC0, 0x40, 0x55, HOOD_SIZE_MOORE);
+			msk.expandBordersInto(ptc.bnd, 0xC0, 0x40, 0x55, HOOD_SIZE_NEUMANN);
+			ptc.area = msk.rescanParticle(ptc, 0xC0);
+			msk.paintParticle(ptc, 0x80);
+		}
+		msk.replaceColor(0x40, 0);
+	} else if (postproc & POSTPROC_ACTIN) {
+		for (Slice& ptc : slices) {
+			if (ptc.fill.empty()) continue;
+			msk.paintParticle(ptc, 0xC0);
+			ptc.bnd.expand(2);
+			msk.clip(ptc.bnd, 1);
+			msk.expandBordersInto(ptc.bnd, 0xC0, 0, 0x55, HOOD_SIZE_MOORE);
+			msk.expandBordersInto(ptc.bnd, 0xC0, 0, 0x55, HOOD_SIZE_NEUMANN);
+			ptc.area = msk.rescanParticle(ptc, 0xC0);
+			msk.paintParticle(ptc, 0x80);
+		}
+	}
+	
+	// Enforce 1-pixel separation between particles
+	for (Slice& ptc : slices) {
+		if (ptc.fill.empty()) continue;
+		msk.paintParticle(ptc, 0xC0);
+		for (HSeg& hs : ptc.fill) {
+			unsigned char *p = msk.scanLine(hs.y);
+			for (int x=hs.xl; x<=hs.xr; x++) {
+				for (int j=1; j<HOOD_SIZE_MOORE; j++) {
+					if (msk.value(x+hood_pts[j].dx, hs.y+hood_pts[j].dy) == 0x80) {
+						p[x] = 0x40;
+						break;
+					}
+				}
+				
+			}
+		}
+		ptc.area = msk.rescanParticle(ptc, 0xC0);
+		msk.paintParticle(ptc, 0x80);
+	}
+	
+	// Output
+	dat.fill(0);
+	int id = 1;
+	for (Slice& ptc : slices) {
+		if (ptc.fill.empty()) continue;
+		dat.paintParticle(ptc, (unsigned short)id);
+		++id;
+	}
+	std::cout << "Write " << id << " particles to " << csvfile << std::endl;
+	write_particle_data(slices, csvfile);
+}
+
 Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv, const char *cmp_csv)
 {
 	Compare3dResult res;
@@ -521,82 +626,199 @@ void paint_cells(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char
 	mstack.expandBorders(0x80, 0, 0xFF, HOOD3D_26);
 }
 
+void filter_particles(unsigned char *mask, int hm, int wm, int minarea)
+{
+	Raster8 msk(wm, hm, mask);
+	msk.fillBorder(0x40);
+	msk.filterParticles(0xFF, 0xC0, minarea, 0);
+	msk.replaceColor(0xC0, 0xFF);
+	msk.fillBorder(0);
+}
 
 /*
-void gen_satellites(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *csvfile, bool sandpaper)
+
+class Raster16SampleIterator2D : public SampleIterator2D
 {
-	Raster3D mstack(wm3d, hm3d, zm3d, mask3d);
+protected:
+	Raster16& dat;
+	Boundary bnd;
+	int x=0, y=0;
+public:
+	Raster16SampleIterator2D(Raster16& _dat, Boundary _bnd) : dat(_dat), bnd(_bnd) {}
+	virtual int GetNumSamples() override
+	{
+		return int(bnd.area());
+	}
+	virtual void reset() override
+	{
+		y = bnd.ymin;
+		x = bnd.xmin;
+	}
+	virtual bool next(double *px, double *py, double *pz) override
+	{
+		if (!bnd.IsInside(x, y)) return false;
+		*px = double(x);
+		*py = double(y);
+		*pz = double(dat.value(x,y));
+		++x;
+		if (x >= bnd.xmax) {
+			x = bnd.xmin;
+			++y;
+		}
+		return true;
+	}
+};
+
+class Raster16SampleIterator2D_p8 : public SampleIterator2D
+{
+protected:
+	Raster16& dat;
+	Boundary bnd;
+	int x=0, y=0;
+public:
+	Raster16SampleIterator2D_p8(Raster16& _dat, Boundary _bnd) : dat(_dat), bnd(_bnd) {}
+	virtual int GetNumSamples() override
+	{
+		return (bnd.xmax-bnd.xmin+1)*(bnd.ymax-bnd.ymin+1)/64;
+	}
+	virtual void reset() override
+	{
+		y = bnd.ymin;
+		x = bnd.xmin;
+	}
+	virtual bool next(double *px, double *py, double *pz) override
+	{
+		if (x < bnd.xmin || x+7 > bnd.xmax || y < bnd.ymin || y+7 > bnd.ymax)
+			return false;
+		
+		double v = 0.;
+		for (int j=0; j<8; j++) {
+			unsigned short *buf = dat.scanLine(y+j) + x;
+			for (int i=0; i<8; i++)
+				v += double(buf[i]);
+		}
+		*px = x + 4.;
+		*py = y + 4.;
+		*pz = v / 64.;
+		
+		x += 8;
+		if (x+7 > bnd.xmax) {
+			x = bnd.xmin;
+			y += 8;
+		}
+		return true;
+	}
+};
+
+double polyfit(unsigned short *data, int hd, int wd, int ord, int tilesz, int overlap)
+{
+	Raster16 dat(wd, hd, data);
 	
-	mstack.fill(0x80);
+	std::vector<PolynomialFit2D *> fits;
+	std::vector<Boundary> bnds;
 	
-	int xysz = hm3d;
-	if (xysz > wm3d) xysz = wm3d;
-	double r = xysz / 5.;
-	double xc = wm3d * 0.45;
-	double yc = hm3d * 0.55;
-	double zc = zm3d / 2.;
+	for (int y=0; y<dat.h; y+=tilesz) {
+		int ymin = y;
+		int ymax = y + tilesz - 1;
+		if (ymax >= dat.h) {
+			ymax = dat.h - 1;
+			ymin = ymax - tilesz + 1;
+			if (ymin < 0) ymin = 0;
+		}
+		std::cout << "Fit: " << ymin << " till " << dat.h << std::endl;
+		
+		for (int x=0; x<dat.w; x+=tilesz) {
+			int xmin = x;
+			int xmax = x + tilesz - 1;
+			if (xmax >= dat.w) {
+				xmax = dat.w - 1;
+				xmin = xmax - tilesz + 1;
+				if (xmin < 0) xmin = 0;
+			}
+			Boundary inner(xmin, ymin, xmax, ymax);
+			Boundary outer(xmin-overlap,ymin-overlap, xmax+overlap,ymax+overlap);
+			dat.clip(outer);
+			
+			PolynomialFit2D* fit = new PolynomialFit2D(ord);
+			Raster16SampleIterator2D_p8 iter(dat, outer);
+			fit->fit(iter);
+			fits.push_back(fit);
+			bnds.push_back(inner);
+		}
+	}
 	
-	Boundary bnd(int(xc-r), int(yc-r), int(xc+r), int(yc+r));
-	Raster8 msk0 = mstack.getPlane(0);
-	msk0.clip(bnd, 1);
-	
-	for (int z=0; z<zm3d-2; z++) {
-		double dz = (z - zc)*5.;
-		double rzsq = r*r - dz*dz;
-		Raster8 msk = mstack.getPlane(z);
+	std::cout << "Predict " << fits.size() << std::endl;
+	double dev = 0.;
+	for (size_t j=0; j<fits.size(); j++) {
+		PolynomialFit2D* fit = fits[j];
+		Boundary bnd = bnds[j];
+		
 		for (int y=bnd.ymin; y<=bnd.ymax; y++) {
-			double dy = y - yc;
-			unsigned char *p = msk.scanLine(y);
+			unsigned short *buf = dat.scanLine(y);
 			for (int x=bnd.xmin; x<=bnd.xmax; x++) {
-				double dx = x - xc;
-				if (dx*dx+dy*dy <= rzsq) p[x] = 0;
+				double v = fit->value(double(x), double(y));
+				if (v < 0.) v = 0.;
+				else if (v > 65535.) v = 65535.;
+				double dv = v - buf[x];
+				dev += dv*dv;
+				buf[x] = (unsigned short)v;
 			}
 		}
-		msk.expandBorders(0x80, 0x40, HOOD_SIZE_RAD3, 0);
+		
+		delete fit;
 	}
+
+	std::cout << "All done." << std::endl;
 	
-	double pxc = xc + r / sqrt(2.) + 3.;
-	double pyc = yc - r / sqrt(2.) - 3.;
-	Boundary pbnd(int(pxc-7), int(pyc-7), int(pxc+7), int(pyc+7));
-	int zm = zm3d / 2;
-	int zl = zm - 2;
-	int zh = zm + 2;
-	for (int z=zl; z<=zh; z++) {
-		Raster8 msk = mstack.getPlane(z);
-		for (int y=pbnd.ymin; y<=pbnd.ymax; y++) {
-			unsigned char *p = msk.scanLine(y);
-			for (int x=pbnd.xmin; x<=pbnd.xmax; x++) {
-				if (p[x] == 0x80 || (z==zm && y==pbnd.ymax)) p[x] = 0;
-			}
-		}
-	}
-	
-	mstack.replaceColor(0x40, 0x80);
-	
-	bnd = msk0.getBoundary();
-	bnd.expand(-1);
-	
-	std::vector<Particle3D> cells(1);
-	Particle3D& cell = cells[0];
-	
-	cell.fills.resize(zm3d);
-	for (int z=2; z<zm3d-2; z++) {
-		Raster8 msk = mstack.getPlane(z);
-		msk.rescanParticleFill(bnd, cell.fills[z], 0);
-	}
-	cell.update_from_fill();
-	
-	if (sandpaper) {
-		mstack.sandPaperCells(cells);
-		mstack.fill(0x80);
-		for (Particle3D& cell : cells)
-			mstack.paintParticle(cell, 0);
-	}
-	
-	mstack.expandBorders(0x80, 0, 0xFF, HOOD3D_26);
-	
-	write_cell_data(cells, csvfile);
+	return sqrt(dev / dat.len);
 }
 */
+
+void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm, int wm, double cutoff)
+{
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wm, hm, mask);
+	
+	int h8 = hd / 8;
+	int w8 = wd / 8;
+	
+	Raster16 hst(w8, h8, NULL);
+	hst.fill(0);
+	for (int y=0; y<h8; y++) {
+		unsigned short *acc = hst.scanLine(y);
+		for (int x=0; x<w8; x++) {
+			double v = 0.;
+			for (int j=0; j<8; j++) {
+				unsigned short *buf = dat.scanLine(y*8+j) + (x*8);
+				for (int i=0; i<8; i++) v += double(buf[i]);
+			}
+			acc[x] = (unsigned short)(v/64.);
+		}
+	}
+	double stdev;
+	double mean = hst.mean_std(&stdev);
+	//std::cout << "mean=" << mean << " stdev=" << stdev << std::endl;
+	
+	unsigned short cut = (unsigned short)(mean + stdev*cutoff + 1.);
+	//std::cout << "cut=" << cut << std::endl;
+
+	for (long long i=0; i<msk.len; i++) {
+		msk.buf[i] = (dat.buf[i] > cut) ? 0xFF : 0;
+	}
+	
+	msk.expandBorders(0, 0x40, HOOD_SIZE_FATCROSS, 0xFF);
+	msk.replaceColor(0x40, 0);
+	
+	msk.filterParticles(0xFF, 0xFC, 500, 0x80);
+	msk.replaceColor(0x80, 0);
+	msk.replaceColor(0xFC, 0xFF);
+	
+	msk.expandBorders(0xFF, 0x80, HOOD_SIZE_RAD3, 0);
+	msk.replaceColor(0x80, 0xFF);
+
+	msk.expandBorders(0xFF, 0x80, HOOD_SIZE_RAD3, 0);
+	msk.replaceColor(0x80, 0xFF);
+
+}
 
 

@@ -51,6 +51,8 @@ const int POSTPROC_DNA = 1;
 const int POSTPROC_ACTIN = 2;
 const int POSTPROC_SANDPAPER = 0x10;
 
+// imagetools.assemble_ml(particles_3d, mask3d, csvfile, postproc)
+//
 // postproc - postprocessing flag.
 //		The POSTPROC_SANDPAPER value can be used alone or in combination with DNA/ACTIN (using '|'):
 // 			imagetools.assemble_ml(particles_3d, mask3d, csvfile, POSTPROC_SANDPAPER)
@@ -59,6 +61,22 @@ const int POSTPROC_SANDPAPER = 0x10;
 void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 		unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *csvfile, int postproc=POSTPROC_NONE,
 		double good_iou=0.6, double ok_iou=0.5);
+
+// imagetools.assemble_2d(particles_2d, scores, data, csvfile[, postproc])
+//		Assemble segmentation results of tiled image into full-size id mask
+//
+//	particles_2d - list of tuples [ (y1,xL1,xR1, y2,xL2,xR2, ...), (y1,xL1,xR1, y2,xL2,xR2, ...), ... ]
+//		concatenated list as returned by imagetools.masks_to_particles()
+//  scores - list of floats, one value per particle, same length as particles_2d. In case of conflicts
+//		in the particles_2d they are resolved based on particle scores from this list
+//  data - numpy array of type uint16, size equal to full image/mask size. If postproc=POSTPROC_DNA,
+//		contains mask (0, 0xFF) for "allowed" areas to expand particle borders into.
+//  csvfle - file to write final 2D segmentation, format ID,y,xL,xR.
+//  postproc - (optional, default 0) perform post-processing border adjustment:
+//		POSTPROC_DNA : expand borders by 2 pixels into "allowed" areas
+//		POSTPROC_ACTIN : expand borders by 2 pixels into empty (background) areas.
+void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
+		unsigned short *data, int hd, int wd, const char *csvfile, int postproc=POSTPROC_NONE);
 
 struct Compare3dResult {
 	int base_cells;
@@ -114,5 +132,22 @@ void sandpaper_cells(int w, int h, int d, const char *in_csv, const char *out_cs
 // mask3d - empty numpy array, shape=(num_frames, height, width), dtype=np.uint8.
 // in_csv (str) - path to .csv containing input cell data (ID,Frame,y,xL,xR)
 void paint_cells(unsigned char *mask3d, int zm3d, int hm3d, int wm3d, const char *in_csv);
+
+// imagetools.filter_particles(mask[, minarea])
+//		Filter out small objects on a binary mask image (0, 255).
+//
+// image - numpy array (width, height), dtype=uint8; 0 = background, 255 = foreground
+// minarea - (optional, default 10) minimal area of objects to keep.
+// 		Anything smaller than that is turned into background (0).
+void filter_particles(unsigned char *mask, int hm, int wm, int minarea=10);
+
+// imagetools.artimask(image, mask[, cutoff])
+//		Detect large bright areas on source image (16-bit gray), output binary mask (0, 255).
+//		Useful for preparing REShAPE-style input for auto-normalizing.
+//
+//	image - numpy array (height, width), dtype=uint16
+//	mask - numpy array (height, width), dtype=uint8
+//  cutoff - (optional, default 3) defines "strength", lower values = stronger filtering
+void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm, int wm, double cutoff=3.);
 
 #endif

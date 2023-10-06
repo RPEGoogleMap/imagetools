@@ -150,6 +150,29 @@ with `imagetools.POSTPROC_DNA` or `imagetools.POSTPROC_ACTIN` using logical OR `
 
 -------
 
+**`imagetools.assemble_2d(particles_2d, scores, data, csvfile[, postproc])`** : Perform 2D assembly (converrt multi-tile
+single-frame 2D particle data into full-frame 2D particle data).
+
+Parameters:
+
+- `particles_2d` : a list (or tuple) of particle data tuples, usually a concatenated list of results of
+imagetools.masks_to_particles(), one element per particle (y1,xL1,xR1, y2,xL2,xR2, ...).
+
+- `scores` : a list of floats containing particle segmentation scores, one value per particle,
+len(scores) == len(particles_2d).
+
+- `data` : a numpy array of shape (height, width) and dtype numpy.uint16. if `postproc` is `imagetools.POSTPROC_DNA`,
+it must be pre-filled with binarized source DNA data, 0=background, 255=foreground (pixels where source pixel values
+are above lower Otsu trheshold in 3-way Otsu). Otherwise, it can be empty or zeros.
+
+- `csvfile` : (str) a path to a file where the output 2D particle data will be written to. Format is `ID,y,xL,xR`.
+
+Optional parameters:
+
+- `postproc` : (int) one of `imagetools.POSTPROC_NONE` (default), `imagetools.POSTPROC_DNA`, `imagetools.POSTPROC_ACTIN`.
+
+-------
+
 **`result = imagetools.compare_3d_annotations(width, height, num_frames, base_csv, cmp_csv)`** : Compare
 two sets of 3D segmentation results.
 
@@ -281,3 +304,17 @@ is stored (0=inner cell pixels, 255=border cell pixels, 128=background pixels).
 
 -------
 
+**`imagetools.filter_particles(mask[, minarea])`** : Filter out small objects on a binary mask image (0, 255).
+
+Parameters:
+
+- `mask` : a numpy array of shape (height, width) and dtype=numpy.uint8, containing initial object mask
+(0=background, 255=foreground). On exit contains filtered mask in the same format, but with small objects
+removed and replaced with background pixels.
+
+Optional parameters:
+
+- `minarea` : int (optional, default 10) min.area of the objects to keep. Any objects of areas smaller than this
+are removed (filled with background pixels).
+
+-------

@@ -120,6 +120,12 @@ struct Raster16 {
 	unsigned short value(int x, int y) { return *(scanLine(y) + x); }
 	void setValue(int x, int y, unsigned short v) { *(scanLine(y) + x) = v; }
 	void setValue(const Point& p, unsigned short v) { *(scanLine(p.y) + p.x) = v; }
+	void clip(Boundary &bnd, int bord=0) {
+		if (bnd.xmin < bord) bnd.xmin = bord;
+		if (bnd.xmax >= w-bord) bnd.xmax = w-1-bord;
+		if (bnd.ymin < bord) bnd.ymin = bord;
+		if (bnd.ymax >= h-bord) bnd.ymax = h-1-bord;
+	}
 	void paintParticle(Particle &ptc, unsigned short c) {
 		paintParticleFill(ptc.fill, c);
 	}

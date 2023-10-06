@@ -802,6 +802,7 @@ void write_particle_data(std::vector<Slice> particles, const char *outfn)
 		int id = 1;
 		
 		for (Slice & ptc : particles) {
+			if (ptc.fill.empty()) continue;
 			for (HSeg &hs : ptc.fill) {
 				fos << id << "," << hs.y << "," << hs.xl << "," << hs.xr << "\n";
 			}
