@@ -1,6 +1,7 @@
 
 #include "geom.h"
 #include "raster.h"
+#include "csv.h"
 #include "ml3d.h"
 #include "comparator.h"
 #include "multifit.h"
@@ -277,13 +278,11 @@ void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 	write_cell_data(aml.cells, csvfile);
 }
 
-void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
-		unsigned short *data, int hd, int wd, const char *csvfile, int postproc)
+static
+std::vector<Slice> from_particles_2d(std::vector<std::vector<int>>& particles_2d, std::vector<double>& scores)
 {
-	Raster16 dat(wd, hd, data);
-	Raster8 msk(wd, hd, NULL);
-	
 	std::vector<Slice> slices(particles_2d.size());
+	
 	for (int idx=0; size_t(idx)<particles_2d.size(); idx++) {
 		std::vector<int>& pt2d = particles_2d[idx];
 		Slice& ptc = slices[idx];
@@ -297,9 +296,8 @@ void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double>
 			Slice& ptc0 = slices[j];
 			if (ptc0.fill.empty()) continue;
 			if (!ptc0.bnd.intersects(ptc.bnd)) continue;
-			int ovl = ptc0.overlay_area(ptc);
-			double iou = double(ovl) / double(ptc.area + ptc0.area - ovl);
-			if (iou >= 0.25) {
+			double ovl = double(ptc0.overlay_area(ptc));
+			if (ovl/ptc.area >= 0.2 || ovl/ptc0.area >= 0.2) {
 				if (scores[j] >= scores[idx]) {
 					ptc.clear();
 					break;
@@ -309,22 +307,24 @@ void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double>
 			}
 		}
 	}
-	
-	msk.fill(0);
+
+	return slices;
+}
+
+static
+void postproc_2d(Raster8& msk, std::vector<Slice>& slices, int postproc)
+{
 	msk.fillBorder(0x10);
 	for (Slice& ptc : slices) {
 		if (ptc.fill.empty()) continue;
 		msk.paintParticleInto(ptc, 0x60, 0);
+		msk.paintParticleInto(ptc, 0x60, 0x40);
 		ptc.area = msk.rescanParticle(ptc, 0x60);
 		msk.paintParticle(ptc, 0x80);
 	}
 	
 	// Post-processing
-	if (postproc & POSTPROC_DNA) {
-		for (long long i=0; i<msk.len; i++) {
-			if (msk.buf[i] == 0 && dat.buf[i] != 0)
-				msk.buf[i] = 0x40;
-		}
+	if (postproc & (POSTPROC_DNA|POSTPROC_ACTIN)) {
 		for (Slice& ptc : slices) {
 			if (ptc.fill.empty()) continue;
 			msk.paintParticle(ptc, 0xC0);
@@ -336,19 +336,8 @@ void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double>
 			msk.paintParticle(ptc, 0x80);
 		}
 		msk.replaceColor(0x40, 0);
-	} else if (postproc & POSTPROC_ACTIN) {
-		for (Slice& ptc : slices) {
-			if (ptc.fill.empty()) continue;
-			msk.paintParticle(ptc, 0xC0);
-			ptc.bnd.expand(2);
-			msk.clip(ptc.bnd, 1);
-			msk.expandBordersInto(ptc.bnd, 0xC0, 0, 0x55, HOOD_SIZE_MOORE);
-			msk.expandBordersInto(ptc.bnd, 0xC0, 0, 0x55, HOOD_SIZE_NEUMANN);
-			ptc.area = msk.rescanParticle(ptc, 0xC0);
-			msk.paintParticle(ptc, 0x80);
-		}
 	}
-	
+
 	// Enforce 1-pixel separation between particles
 	for (Slice& ptc : slices) {
 		if (ptc.fill.empty()) continue;
@@ -368,6 +357,24 @@ void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double>
 		ptc.area = msk.rescanParticle(ptc, 0xC0);
 		msk.paintParticle(ptc, 0x80);
 	}
+}
+
+void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
+		unsigned short *data, int hd, int wd, const char *csvfile, int postproc)
+{
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wd, hd, NULL);
+	
+	std::vector<Slice> slices = from_particles_2d(particles_2d, scores);
+	
+	msk.fill(0x40);
+	if (postproc & POSTPROC_DNA) {
+		for (long long i=0; i<msk.len; i++) {
+			if (dat.buf[i] == 0) msk.buf[i] = 0;
+		}
+	}
+	
+	postproc_2d(msk, slices, postproc);
 	
 	// Output
 	dat.fill(0);
@@ -379,6 +386,53 @@ void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double>
 	}
 	std::cout << "Write " << id << " particles to " << csvfile << std::endl;
 	write_particle_data(slices, csvfile);
+}
+
+void assemble_2d_bin(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
+		unsigned char *mask, int hm, int wm, const char *csvfile, int postproc)
+{
+	Raster8 msk(wm, hm, mask);
+	
+	std::vector<Slice> slices = from_particles_2d(particles_2d, scores);
+	
+	if (postproc & POSTPROC_DNA) {
+		for (long long i=0; i<msk.len; i++) {
+			if (msk.buf[i] != 0) msk.buf[i] = 0x40;
+		}
+	} else {
+		msk.fill(0x40);
+	}
+	
+	postproc_2d(msk, slices, postproc);
+	
+	// Output
+	msk.fill(0);
+	
+	CsvWriter wr(csvfile);
+	wr.SetDoubleFormat("%0.3lf");
+	
+	wr.append("ID");
+	wr.append("XStart");
+	wr.append("YStart");
+	wr.append("AreaPix");
+	wr.next();
+
+	int id = 1;
+	for (Slice& ptc : slices) {
+		if (ptc.fill.empty()) continue;
+		msk.paintParticle(ptc, 0xFF);
+		
+		wr.append(id);
+		wr.append(ptc.x0);
+		wr.append(ptc.y0);
+		wr.append(ptc.area);
+		wr.next();
+		
+		++id;
+	}
+	
+	wr.close();
+	std::cout << "Write " << id << " particles to " << csvfile << std::endl;
 }
 
 Compare3dResult compare_3d_annotations(int w, int h, int d, const char *base_csv, const char *cmp_csv)

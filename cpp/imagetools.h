@@ -78,6 +78,10 @@ void assemble_ml(std::vector<std::vector<std::vector<int>>> particles_3d,
 void assemble_2d(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
 		unsigned short *data, int hd, int wd, const char *csvfile, int postproc=POSTPROC_NONE);
 
+// Same as assemble_2d(), but returns binary mask (0=bkg, 0xFF=fgd) and csvfile format: ID,XStart,YStart,AreaPix
+void assemble_2d_bin(std::vector<std::vector<int>> particles_2d, std::vector<double> scores,
+		unsigned char *mask, int hm, int wm, const char *csvfile, int postproc=POSTPROC_NONE);
+
 struct Compare3dResult {
 	int base_cells;
 	int cmp_cells;
