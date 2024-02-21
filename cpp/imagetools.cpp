@@ -101,38 +101,105 @@ std::vector<std::vector<int>> detect_particles(unsigned char *mask, int hm, int 
 void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expand)
 {
 	Raster8 out(wm, hm, mask);
+	
+	Raster8 mapm((wm+7)>>3, (hm+7)>>3, NULL);
+	mapm.fill(0x40);
+	for (int y=0; y<out.h; y++) {
+		unsigned char *p = out.scanLine(y);
+		unsigned char *pm = mapm.scanLine(y>>3);
+		for (int x=0; x<out.w; x++) {
+			if (p[x] == 0xFF) pm[x>>3] = 0xFF;
+		}
+	}
+	mapm.expandBorders(0xFF, 0, HOOD_SIZE_RAD3, 0x40);
 
 	out.fillBorder(0x10, 1);
+
+	std::vector<Slice> optcs;
+	for (int y0=1; y0<out.h-1; y0++) {
+		unsigned char *p = out.scanLine(y0);
+		for (int x0=1; x0<out.w-1; x0++) {
+			if (p[x0] != 0) continue;
+			optcs.resize(optcs.size()+1);
+			Slice &ptc = optcs[optcs.size()-1];
+			ptc.area = out.detectParticle(ptc, x0, y0, 0x30);
+		}
+	}
+	for (Slice &ptc : optcs)
+		out.paintParticle(ptc, 0);
+	
+	for (int y=0; y<out.h; y++) {
+		unsigned char *p = out.scanLine(y);
+		unsigned char *pm = mapm.scanLine(y>>3);
+		for (int x=0; x<out.w; x++) {
+			if (p[x] == 0 && pm[x>>3] == 0x40) p[x] = 0x45;
+		}
+	}
+
 	out.expandBorders(0xFF, 0x80, HOOD_SIZE_FATCROSS, 0);
 	out.expandBorders(0x80, 0x78, HOOD_SIZE_FATCROSS, 0);
 
-	out.filterParticles(0, 0x20, 20, 0x30);
+	for (Slice &ptc : optcs) {
+		if (ptc.area < 0) continue;
+		int inners = 0;
+		int bigs = 0;
+		for (HSeg& hs : ptc.fill) {
+			unsigned char *p = out.scanLine(hs.y);
+			for (int x0=hs.xl; x0<=hs.xr; x0++) {
+				if (p[x0] == 0) {
+					++inners;
+					Particle inner;
+					if (out.detectParticle(inner, x0, hs.y, 0x20) <= 20)
+						out.paintParticle(inner, 0x30);
+					else
+						++bigs;
+				}
+			}
+		}
+		if (bigs == 0) {
+			out.paintParticle(ptc, 0x80);
+			ptc.clear();
+			ptc.area = -1;
+		}
+	}
 	out.replaceColor(0x20, 0);
 	out.replaceColor(0x30, 0x80);
 
-	out.filterParticles(0, 0x20, 300, 0x40);
-	out.replaceColor(0x20, 0);
-	out.expandBorders(0x78, 0x70, HOOD_SIZE_FATCROSS, 0);
+	for (unsigned char curfg=0x78; curfg>=0x60; curfg-=8) {
+		for (Slice &ptc : optcs) {
+			if (ptc.area < 0) continue;
+			int inners = 0;
+			int bigs = 0;
+			for (HSeg& hs : ptc.fill) {
+				unsigned char *p = out.scanLine(hs.y);
+				for (int x0=hs.xl; x0<=hs.xr; x0++) {
+					if (p[x0] == 0) {
+						Particle inner;
+						long long a = out.detectParticle(inner, x0, hs.y, 0x20);
+						if (a < 10) {
+							out.paintParticle(inner, curfg);
+						} else if (a <= 300) {
+							out.paintParticle(inner, 0x40);
+							++inners;
+						} else {
+							++bigs;
+							++inners;
+						}
+					}
+				}
+			}
+			if (inners == 1 && bigs == 0) {
+				out.paintParticle(ptc, 0x42);
+				ptc.area = -1;
+			}
+		}
+		out.replaceColor(0x20, 0);
+		out.expandBorders(curfg, curfg-8, HOOD_SIZE_FATCROSS, 0);
+	}
 
-	out.filterParticles(0, 0x20, 300, 0x40);
-	out.replaceColor(0x20, 0);
-	out.expandBorders(0x70, 0x68, HOOD_SIZE_FATCROSS, 0);
-
-	out.filterParticles(0, 0x20, 300, 0x40);
-	out.replaceColor(0x20, 0);
-	out.expandBorders(0x68, 0x60, HOOD_SIZE_FATCROSS, 0);
-
-	out.filterParticles(0, 0x20, 300, 0x40);
-	out.replaceColor(0x20, 0);
-	out.expandBorders(0x60, 0x58, HOOD_SIZE_FATCROSS, 0);
-
-	out.replaceColor(0x40, 0);
-	out.replaceColor(0xC0, 0);
-	
-	out.filterParticles(0, 0x20, 50, 0x80);
-	out.replaceColor(0x20, 0);
-	
 	// Try to rejoin small chips to bigger ones nearby
+	out.replaceColor(0x40, 0);
+	
 	out.filterParticles(0, 0x20, 200, 0xA0);
 	out.replaceColor(0x20, 0);
 	out.replaceColor(0x58, 0x60);
@@ -143,37 +210,54 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expa
 	out.replaceColor(0xA0, 0);
 	
 	std::vector<Slice> particles;
-	for (int y0=1; y0<out.h-1; y0++) {
-		unsigned char *p = out.scanLine(y0);
-		for (int x0=1; x0<out.w-1; x0++) {
-			if (p[x0] != 0) continue;
-			particles.resize(particles.size()+1);
-			Slice &ptc = particles[particles.size()-1];
-			ptc.area = out.detectParticle(ptc, x0, y0, 0x30);
+	for (Slice &ptc : optcs) {
+		if (ptc.area < 0) continue;
+		int inners = 0;
+		for (HSeg& hs : ptc.fill) {
+			unsigned char *p = out.scanLine(hs.y);
+			for (int x0=hs.xl; x0<=hs.xr; x0++) {
+				if (p[x0] == 0) {
+					particles.resize(particles.size()+1);
+					Slice& inner = particles[particles.size()-1];
+					inner.area = out.detectParticle(inner, x0, hs.y, 0x20);
+					++inners;
+				}
+			}
+		}
+		if (inners == 1) {
+			out.paintParticle(ptc, 0x42);
+			ptc.area = -1;
+			particles.resize(particles.size()-1);
 		}
 	}
-	for (Slice &ptc : particles)
-		out.paintParticle(ptc, 0);
+
 	int npass = 8;
-	for (int lc=0x60; lc<=0x80; lc+=0x8) {
-		unsigned char curc = (unsigned char)(lc);
-		unsigned char nextc = curc + 0x8;
+	for (unsigned char curc=0x60; curc<=0x80; curc+=0x8) {
 		for (int pass=0; pass<npass; pass++) {
 			int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
 			for (Slice &ptc : particles)
 				out.expandParticle(ptc, 0, 0x30, curc, nbsz);
 		}
 		if (curc == 0x80) break;
-		out.replaceColor(curc, nextc);
+		out.replaceColor(curc, curc+0x8);
 		npass = 4;
 	}
 	
-	// Perform a few more erosion iterations to cut into deep corners
+	out.replaceColor(0x42, 0);
+
+	// Cut into original borders, make them 1 pixel thick
 	out.replaceColor(0xFF, 0x80);
 	for (int pass=0; pass<8; pass++) {
+		int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
 		for (Slice &ptc : particles)
-			out.expandParticle(ptc, 0, 0x30, 0x80, HOOD_SIZE_NEUMANN);
+			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
+		for (Slice &ptc : optcs) {
+			if (ptc.area>0 || ptc.fill.empty()) continue;
+			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
+		}
 	}
+	
+	out.replaceColor(0x45, 0);
 
 	out.replaceColor(out.forcedc, 0x80);
 	out.expandBorders(0, 0xFF, HOOD_SIZE_MOORE, 0x80);
@@ -875,4 +959,112 @@ void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm,
 
 }
 
+static unsigned short detect_ptid_perim(ParticlePerim& peri, Raster16& dat, Raster8& msk, int x0, int y0)
+{
+	std::vector<Point> todo;
+	peri.bnd = Boundary(x0, y0, x0, y0);
+	todo.push_back(Point(x0, y0));
+	unsigned short id = dat.value(x0, y0);
+	msk.setValue(x0, y0, 0x80);
+	size_t loidx = 0;
+	while(loidx < todo.size()) {
+		Point p = todo[loidx];
+		++loidx;
+		bool is_border = false;
+		for (int j=1; j<HOOD_SIZE_NEUMANN; j++) {
+			int x = p.x + hood_pts[j].dx;
+			int y = p.y + hood_pts[j].dy;
+			if (dat.value(x,y) != id) {
+				is_border = true;
+				continue;
+			}
+			if (msk.value(x, y) != 0) continue;
+			todo.push_back(Point(x, y));
+			msk.setValue(x, y, 0x80);
+		}
+		if (is_border) {
+			peri.perim.push_back(p);
+			if (peri.bnd.xmin > p.x) peri.bnd.xmin = p.x;
+			if (peri.bnd.ymin > p.y) peri.bnd.ymin = p.y;
+			if (peri.bnd.xmax < p.x) peri.bnd.xmax = p.x;
+			if (peri.bnd.ymax < p.y) peri.bnd.ymax = p.y;
+		}
+	}
+	peri.bnd.expand(6);
+	msk.clip(peri.bnd);
+	return id;
+}
 
+std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd)
+{
+	long long max_nb_sqdist = 41ll;
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wd, hd, NULL);
+	msk.fill(0);
+	msk.fillBorder(0x10, 1);
+	std::vector<std::vector<int>> res;
+	
+	std::vector<ParticlePerim> perims;
+	
+	for (int y0=1; y0<dat.h-1; y0++) {
+		unsigned short* pd = dat.scanLine(y0);
+		unsigned char* pm = msk.scanLine(y0);
+		for (int x0=1; x0<dat.w-1; x0++) {
+			if (pd[x0] == 0 || pm[x0] != 0) continue;
+			size_t idx = perims.size();
+			perims.resize(idx + 1);
+			res.resize(idx + 1);
+			unsigned short id = detect_ptid_perim(perims[idx], dat, msk, x0, y0);
+			res[idx].push_back(int(id));
+			res[idx].push_back(0);
+		}
+	}
+	
+	if (perims.size() > 1) {
+		for (size_t i=0; i<perims.size()-1; i++) {
+			ParticlePerim& pp1 = perims[i];
+			for (size_t j=i+1; j<perims.size(); j++) {
+				ParticlePerim& pp2 = perims[j];
+				if (!pp1.intersects(pp2)) continue;
+				if (pp1.sqdist(pp2) < max_nb_sqdist) {
+					++ res[i][1];
+					++ res[j][1];
+				}
+			}
+		}
+	}
+
+	return res;
+}
+
+void create_id_mask(unsigned char *mask, int hm, int wm, unsigned short *data, int hd, int wd, const char *in_csv)
+{
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wd, hd, mask);
+	
+	msk.fillBorder(0x10, 1);
+	dat.fill(0);
+	
+	CsvReader rdr(in_csv);
+	if (rdr.next()) {
+		CsvRow headers = rdr.GetRow();
+		rdr.setHeaders(headers);
+	} else {
+		return;
+	}
+
+	int iXStart = rdr.header_index("XStart");
+	int iYStart = rdr.header_index("YStart");
+	if (iXStart < 0 || iYStart < 0) return;
+
+	int id = 0;
+	
+	while(rdr.next()) {
+		int x0 = rdr.GetInt(iXStart);
+		int y0 = rdr.GetInt(iYStart);
+		Particle pt;
+		msk.detectParticle(pt, x0, y0, 0x40);
+		++id;
+		dat.paintParticle(pt, (unsigned short)id);
+	}
+}

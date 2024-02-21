@@ -214,7 +214,7 @@ void Particle::fromContour(Contour &cont)
 	}
 }
 
-int Particle::update_from_fill()
+long long Particle::update_from_fill()
 {
 	if (fill.size() > 0) {
 		x0 = fill[0].xl;
@@ -252,14 +252,28 @@ Point Particle::center_mass()
 	return Point(int(xc/npt), int(yc/npt));
 }
 
-int Particle::overlay_area(std::vector<HSeg> &other_fill)
+long long Particle::overlay_area(std::vector<HSeg> &other_fill)
 {
 	return fill_overlay_area(fill, other_fill);
 }
-int Particle::overlay_area(Particle &other)
+long long Particle::overlay_area(Particle &other)
 {
 	if (!bnd.intersects(other.bnd)) return 0;
 	return fill_overlay_area(fill, other.fill);
+}
+
+long long ParticlePerim::sqdist(ParticlePerim& other)
+{
+	long long res = -1ll;
+	for (Point& pt : perim) {
+		for (Point& opt : other.perim) {
+			int dx = pt.x - opt.x;
+			int dy = pt.y - opt.y;
+			long long qsd = (long long)dx * dx + (long long)dy * dy;
+			if (res < 0 || qsd < res) res = qsd;
+		}
+	}
+	return res;
 }
 
 //----------------------------- Particle3D --------------------------------
@@ -315,13 +329,13 @@ double Particle3D::iou_score(int max_gap)
 	for (int z1=0; z1<d-1; z1++) {
 		std::vector<HSeg> &fill1 = fills[z1];
 		if (fill1.empty()) continue;
-		int a1 = fill_area(fill1);
+		long long a1 = fill_area(fill1);
 		for (int z2=z1+1; z2<d; z2++) {
 			if (z2 - z1 > max_gap) break;
 			std::vector<HSeg> &fill2 = fills[z2];
 			if (fill2.empty()) continue;
-			int a2 = fill_area(fill2);
-			int ovl = fill_overlay_area(fill1, fill2);
+			long long a2 = fill_area(fill2);
+			long long ovl = fill_overlay_area(fill1, fill2);
 			if (ovl > 0)
 				sc += double(ovl) / (a1 + a2 - ovl);
 		}
@@ -751,9 +765,9 @@ double fill_circularity(std::vector<HSeg> & fill)
 	return double(inside) / (M_PI * radsq);
 }
 
-int fill_overlay_area(std::vector<HSeg> &fill, std::vector<HSeg> &other_fill)
+long long fill_overlay_area(std::vector<HSeg> &fill, std::vector<HSeg> &other_fill)
 {
-	int a = 0;
+	long long a = 0;
 	for (HSeg &hs0 : fill) {
 		for (HSeg &hs1 : other_fill) {
 			if (hs0.y != hs1.y) continue;

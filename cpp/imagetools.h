@@ -154,4 +154,15 @@ void filter_particles(unsigned char *mask, int hm, int wm, int minarea=10);
 //  cutoff - (optional, default 3) defines "strength", lower values = stronger filtering
 void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm, int wm, double cutoff=3.);
 
+// imagetools.count_neighbors(data)
+// 		Count cell neighbors
+//
+// data - numpy array (height, width), dtype=uint16 containing cell segmentations;
+// 		each cell = unique pixel value, 0 - background, 1 - cell 1, 2 - cell 2, etc.
+//
+// result: tuple ((cellID1, NN1), (cellID2, NN2), ...), NNx = number of neighbors
+std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd);
+
+void create_id_mask(unsigned char *mask, int hm, int wm, unsigned short *data, int hd, int wd, const char *in_csv);
+
 #endif

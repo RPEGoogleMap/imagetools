@@ -113,6 +113,7 @@ struct Raster16 {
 		}
 	}
 	~Raster16() { if (is_temp) delete[] buf; }
+	Boundary getBoundary() { return Boundary(0, 0, w-1, h-1); }
 	void fill(unsigned short c) {
 		for (long long i=0; i<len; i++) buf[i] = c;
 	}
@@ -186,7 +187,7 @@ public:
 		if (bnd.ymin < bord) bnd.ymin = bord;
 		if (bnd.ymax >= h-bord) bnd.ymax = h-1-bord;
 	}
-	int fillParticle(int x0, int y0, unsigned char newc) {
+	long long fillParticle(int x0, int y0, unsigned char newc) {
 		std::vector<HSeg> fill;
 		findParticleFill(fill, x0, y0, newc);
 		return fill_area(fill);

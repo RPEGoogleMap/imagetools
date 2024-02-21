@@ -318,3 +318,17 @@ Optional parameters:
 are removed (filled with background pixels).
 
 -------
+
+**`result = imagetools.count_neighbors(id_mask)`** : Count cell neighbors on 16-bit ID mask
+(0=background, 1=Cell1, 2=Cell2, etc.)
+
+Parameters:
+
+- `id_mask` : a numpy array of shape (height, width) and dtype=numpy.uint16, containing cell masks, each cell
+painted with unique color (pixel value) > 0
+
+Returns:
+
+- tuple of 2-value tuples ((CellID1, Neighbors1), (CellID2, Neighbors2), ...), one entry per cell.
+
+-------

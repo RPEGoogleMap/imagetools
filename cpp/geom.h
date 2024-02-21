@@ -172,17 +172,24 @@ struct Particle
 	}
 	//
 	void fromContour(Contour &cont);
-	int update_from_fill();
+	long long update_from_fill();
 	bool IsInside(int x, int y);
 	Point center_mass();
-	int overlay_area(std::vector<HSeg> &other_fill);
-	int overlay_area(Particle &other);
+	long long overlay_area(std::vector<HSeg> &other_fill);
+	long long overlay_area(Particle &other);
 };
 
 struct Slice : public Particle
 {
-	int area;
+	long long area;
 	Slice() : Particle() {}
+};
+
+struct ParticlePerim {
+	Boundary bnd;
+	std::vector<Point> perim;
+	bool intersects(ParticlePerim& other) { return bnd.intersects(other.bnd); }
+	long long sqdist(ParticlePerim& other);
 };
 
 //--- 3D stuff
@@ -295,7 +302,7 @@ struct Particle3D
 	}
 	long long update_from_fill();
 	long long overlay_volume(Particle3D &other);
-	int overlay_area2d(Particle &other, int z) {
+	long long overlay_area2d(Particle &other, int z) {
 		if (!bnd.intersects2d(other.bnd) || fills[z].empty()) return 0;
 		return other.overlay_area(fills[z]);
 	}
@@ -391,8 +398,8 @@ inline void sort_fill(std::vector<HSeg> & fill) {
         return a.less_than(b);   
     });
 }
-inline int fill_area(std::vector<HSeg> & fill) {
-	int a = 0;
+inline long long fill_area(std::vector<HSeg> & fill) {
+	long long a = 0;
 	for (HSeg &s : fill) a += (s.xr-s.xl+1);
 	return a;
 }
@@ -412,7 +419,7 @@ Boundary boundary_around(int x, int y, int dist, int w, int h);
 Boundary fill_boundary(std::vector<HSeg> & fill);
 double fill_centroid(std::vector<HSeg> & fill, double *px, double *py);
 double fill_circularity(std::vector<HSeg> & fill);
-int fill_overlay_area(std::vector<HSeg> &fill, std::vector<HSeg> &other_fill);
+long long fill_overlay_area(std::vector<HSeg> &fill, std::vector<HSeg> &other_fill);
 void fill_from_contour(std::vector<HSeg> &fill, Contour &cont);
 
 void write_particle_data(std::vector<Slice> particles, const char *outfn);

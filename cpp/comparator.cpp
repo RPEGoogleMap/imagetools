@@ -8,7 +8,7 @@ std::vector<SliceMatch> SegmentationComparator3D::init_matches(std::vector<Parti
 	for (int cell_id=0; size_t(cell_id)<cells.size(); cell_id++) {
 		std::vector<HSeg> &fill = cells[cell_id].fills[z];
 		if (fill.empty()) continue;
-		int area = fill_area(fill);
+		long long area = fill_area(fill);
 		if (area >= 10) {
 			res.push_back(SliceMatch(cell_id, z, area));
 		}
@@ -54,8 +54,8 @@ void SegmentationComparator3D::compare_slices_z(int z)
 		for (int c_id=0; size_t(c_id)<csms.size(); c_id++) {
 			SliceMatch& csm = csms[c_id];
 			std::vector<HSeg> &cfill = cmp_cells[csm.cell_id].fills[z];
-			int ovl = fill_overlay_area(fill, cfill);
-			int ovl2 = ovl + ovl;
+			long long ovl = fill_overlay_area(fill, cfill);
+			long long ovl2 = ovl + ovl;
 			if (ovl2 < bsm.my_area && ovl2 < csm.my_area) continue;
 			
 			++bsm.nm;
@@ -85,7 +85,7 @@ void SegmentationComparator3D::compare_slices_z(int z)
 				++fragm;
 			} else {
 				// 1-1 match
-				int uni = bsm.my_area + bsm.other_area - bsm.ovl;
+				long long uni = bsm.my_area + bsm.other_area - bsm.ovl;
 				int idx = int(double(bsm.ovl) * 100. / double(uni));
 				if (idx >= 100) idx = 99;
 				//else if (idx < 50) idx = 50;

@@ -11,13 +11,13 @@ struct SliceMatch
 {
 	int cell_id;
 	int z;
-	int my_area;
+	long long my_area;
 	int nm;
 	int other_id;
-	int other_area;
-	int ovl;
+	long long other_area;
+	long long ovl;
 	SliceMatch() {}
-	SliceMatch(int _cell_id, int _z, int _my_area) : cell_id(_cell_id), z(_z), my_area(_my_area) {
+	SliceMatch(int _cell_id, int _z, long long _my_area) : cell_id(_cell_id), z(_z), my_area(_my_area) {
 		nm = 0;
 		other_id = -1;
 		other_area = 0;
