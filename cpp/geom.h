@@ -190,6 +190,12 @@ struct ParticlePerim {
 	std::vector<Point> perim;
 	bool intersects(ParticlePerim& other) { return bnd.intersects(other.bnd); }
 	long long sqdist(ParticlePerim& other);
+	void assign(ParticlePerim& other) {
+		bnd = other.bnd;
+		perim.resize(other.perim.size());
+		for (size_t j=0; j<other.perim.size(); j++)
+			perim[j] = other.perim[j];
+	}
 };
 
 //--- 3D stuff

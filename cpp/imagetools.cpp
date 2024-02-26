@@ -959,7 +959,7 @@ void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm,
 
 }
 
-static unsigned short detect_ptid_perim(ParticlePerim& peri, Raster16& dat, Raster8& msk, int x0, int y0)
+static size_t detect_ptid_perim(ParticlePerim& peri, Raster16& dat, Raster8& msk, int x0, int y0)
 {
 	std::vector<Point> todo;
 	peri.bnd = Boundary(x0, y0, x0, y0);
@@ -992,7 +992,18 @@ static unsigned short detect_ptid_perim(ParticlePerim& peri, Raster16& dat, Rast
 	}
 	peri.bnd.expand(6);
 	msk.clip(peri.bnd);
-	return id;
+	return todo.size();
+}
+
+static size_t find_pt_id(std::vector<std::vector<int>>& res, int id)
+{
+	size_t idx = 0;
+	for (idx=0; idx<res.size(); idx++) {
+		std::vector<int>& v = res[idx];
+		if (v.empty()) continue;
+		if (v[0] == id) return idx;
+	}
+	return idx;
 }
 
 std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd)
@@ -1010,14 +1021,30 @@ std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int 
 		unsigned short* pd = dat.scanLine(y0);
 		unsigned char* pm = msk.scanLine(y0);
 		for (int x0=1; x0<dat.w-1; x0++) {
-			if (pd[x0] == 0 || pm[x0] != 0) continue;
+			unsigned short id = pd[x0];
+			if (id == 0 || pm[x0] != 0) continue;
 			size_t idx = perims.size();
 			perims.resize(idx + 1);
 			res.resize(idx + 1);
-			unsigned short id = detect_ptid_perim(perims[idx], dat, msk, x0, y0);
+			size_t area = detect_ptid_perim(perims[idx], dat, msk, x0, y0);
+			size_t idx0 = find_pt_id(res, int(id));
+			if (idx0 < idx) {
+				if (int(area) > res[idx0][2]) {
+					res[idx0][2] = int(area);
+					perims[idx0].assign(perims[idx]);
+				}
+				perims.resize(idx);
+				res.resize(idx);
+				continue;
+			}
 			res[idx].push_back(int(id));
 			res[idx].push_back(0);
+			res[idx].push_back(int(area));
 		}
+	}
+	
+	for (size_t i=0; i<res.size(); i++) {
+		res[i].resize(2);
 	}
 	
 	if (perims.size() > 1) {
