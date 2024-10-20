@@ -1,2 +1,2 @@
 
-const char* __version__ = "1.0.8 (2024-02-26)";
+const char* __version__ = "1.0.9 (2024-10-21)";

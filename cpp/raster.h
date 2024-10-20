@@ -363,6 +363,7 @@ public:
 	unsigned short *scanLine(int y, int z) {
 		return buf +(plane_len*z + (long long)(w)*y);
 	}
+	void paintCell(Particle3D& cell, unsigned short c);
 	unsigned short otsu();
 	double centerMass(Particle3D& cell, double *p_xc, double *p_yc, double *p_zc);
 };

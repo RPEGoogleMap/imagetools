@@ -332,3 +332,21 @@ Returns:
 - tuple of 2-value tuples ((CellID1, Neighbors1), (CellID2, Neighbors2), ...), one entry per cell.
 
 -------
+
+**`imagetools.id_mask_merge_cells(id_mask_3d[, maxgap[, miniou]])`** : Merge cell fragmengts on 16-bit ID mask
+(0=background, 1=Cell1, 2=Cell2, etc.) if they are separated by missing z-frames
+
+Parameters:
+
+- `id_mask_3d` : a numpy array of shape (depth, height, width) and dtype=numpy.uint16, containing cell masks, each cell
+painted with unique color (pixel value) > 0
+
+- `maxgap` : int (optional, default 10) max gap between z-frames
+
+- `miniou` : float (optional, default 0.6) min IOU between closest z-frames
+
+Returns:
+
+- None, `id_mask_3d` is updated with merged cell IDs (there is usually fewer of them)
+
+-------

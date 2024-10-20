@@ -98,23 +98,24 @@ std::vector<std::vector<int>> detect_particles(unsigned char *mask, int hm, int 
 	return res;
 }
 
+// imagetools.postprocess_particle_borders(mask[, expand])
 void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expand)
 {
 	Raster8 out(wm, hm, mask);
 	
-	Raster8 mapm((wm+7)>>3, (hm+7)>>3, NULL);
-	mapm.fill(0x40);
-	for (int y=0; y<out.h; y++) {
-		unsigned char *p = out.scanLine(y);
-		unsigned char *pm = mapm.scanLine(y>>3);
-		for (int x=0; x<out.w; x++) {
-			if (p[x] == 0xFF) pm[x>>3] = 0xFF;
-		}
-	}
-	mapm.expandBorders(0xFF, 0, HOOD_SIZE_RAD3, 0x40);
-
 	out.fillBorder(0x10, 1);
-
+	
+	out.expandBorders(0xFF, 0x80, HOOD_SIZE_RAD3, 0);
+	for (int pass=0; pass<5; pass++) {
+		out.expandBorders(0x80, 0x70, HOOD_SIZE_RAD3, 0);
+		out.replaceColor(0x70, 0x80);
+	}
+	out.filterParticles(0, 0x45, 250000, 0x80);
+	out.replaceColor(0x80, 0);
+	
+	out.expandBorders(0xFF, 0x80, HOOD_SIZE_FATCROSS, 0);
+	out.expandBorders(0x80, 0x78, HOOD_SIZE_FATCROSS, 0);
+	
 	std::vector<Slice> optcs;
 	for (int y0=1; y0<out.h-1; y0++) {
 		unsigned char *p = out.scanLine(y0);
@@ -127,43 +128,6 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expa
 	}
 	for (Slice &ptc : optcs)
 		out.paintParticle(ptc, 0);
-	
-	for (int y=0; y<out.h; y++) {
-		unsigned char *p = out.scanLine(y);
-		unsigned char *pm = mapm.scanLine(y>>3);
-		for (int x=0; x<out.w; x++) {
-			if (p[x] == 0 && pm[x>>3] == 0x40) p[x] = 0x45;
-		}
-	}
-
-	out.expandBorders(0xFF, 0x80, HOOD_SIZE_FATCROSS, 0);
-	out.expandBorders(0x80, 0x78, HOOD_SIZE_FATCROSS, 0);
-
-	for (Slice &ptc : optcs) {
-		if (ptc.area < 0) continue;
-		int inners = 0;
-		int bigs = 0;
-		for (HSeg& hs : ptc.fill) {
-			unsigned char *p = out.scanLine(hs.y);
-			for (int x0=hs.xl; x0<=hs.xr; x0++) {
-				if (p[x0] == 0) {
-					++inners;
-					Particle inner;
-					if (out.detectParticle(inner, x0, hs.y, 0x20) <= 20)
-						out.paintParticle(inner, 0x30);
-					else
-						++bigs;
-				}
-			}
-		}
-		if (bigs == 0) {
-			out.paintParticle(ptc, 0x80);
-			ptc.clear();
-			ptc.area = -1;
-		}
-	}
-	out.replaceColor(0x20, 0);
-	out.replaceColor(0x30, 0x80);
 
 	for (unsigned char curfg=0x78; curfg>=0x60; curfg-=8) {
 		for (Slice &ptc : optcs) {
@@ -208,7 +172,7 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expa
 		out.replaceColor(0x30, 0xA0);
 	}
 	out.replaceColor(0xA0, 0);
-	
+
 	std::vector<Slice> particles;
 	for (Slice &ptc : optcs) {
 		if (ptc.area < 0) continue;
@@ -230,9 +194,11 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expa
 			particles.resize(particles.size()-1);
 		}
 	}
-
+	
+	out.replaceColor(0x42, 0);
+	
 	int npass = 8;
-	for (unsigned char curc=0x60; curc<=0x80; curc+=0x8) {
+	for (unsigned char curc=0x60; curc<0x80; curc+=0x8) {
 		for (int pass=0; pass<npass; pass++) {
 			int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
 			for (Slice &ptc : particles)
@@ -242,34 +208,87 @@ void postprocess_particle_borders(unsigned char *mask, int hm, int wm, bool expa
 		out.replaceColor(curc, curc+0x8);
 		npass = 4;
 	}
-	
-	out.replaceColor(0x42, 0);
 
-	// Cut into original borders, make them 1 pixel thick
-	out.replaceColor(0xFF, 0x80);
-	for (int pass=0; pass<8; pass++) {
+	for (int pass=0; pass<2; pass++) {
 		int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
-		for (Slice &ptc : particles)
-			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
 		for (Slice &ptc : optcs) {
 			if (ptc.area>0 || ptc.fill.empty()) continue;
 			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
 		}
 	}
 	
-	out.replaceColor(0x45, 0);
-
-	out.replaceColor(out.forcedc, 0x80);
-	out.expandBorders(0, 0xFF, HOOD_SIZE_MOORE, 0x80);
+	out.replaceColor(out.forcedc, 0xFF);
+	out.expandBorders(0xFF, 0x80, HOOD_SIZE_FATCROSS, 0);
 	
+	optcs.resize(0);
+	particles.resize(0);
+
+	for (int y0=1; y0<out.h-1; y0++) {
+		unsigned char *p = out.scanLine(y0);
+		for (int x0=1; x0<out.w-1; x0++) {
+			if (p[x0] != 0) continue;
+			optcs.resize(optcs.size()+1);
+			Slice &ptc = optcs[optcs.size()-1];
+			ptc.area = out.detectParticle(ptc, x0, y0, 0x30);
+		}
+	}
+	
+	out.replaceColor(0x30, 0);
+
+	// Cut into original borders, make them 1 pixel thick
+	for (int pass=0; pass<8; pass++) {
+		if (pass == 3) {
+			out.replaceColor(0xFF, 0x80);
+		}
+		int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
+		for (Slice &ptc : optcs)
+			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
+	}
+
+	for (long long i=0; i<out.len; i++) {
+		out.buf[i] = out.buf[i] < 0x80 ? 0 : 0xFF;
+	}
+
 	if (expand) {
 		out.expandBorders(0xFF, 0xC0, HOOD_SIZE_MOORE, 0);
 		out.replaceColor(0xC0, 0xFF);
 	}
-
-	out.fillBorder(0, 1);
 }
 
+// rstools.refine_particle_borders(mask[, expand])
+void refine_particle_borders(unsigned char *mask, int hm, int wm, bool expand)
+{
+	Raster8 out(wm, hm, mask);
+	out.fillBorder(0x10, 1);
+	
+	std::vector<Slice> particles;
+	for (int y0=1; y0<out.h-1; y0++) {
+		unsigned char *p = out.scanLine(y0);
+		for (int x0=1; x0<out.w-1; x0++) {
+			if (p[x0] != 0) continue;
+			particles.resize(particles.size()+1);
+			Slice &ptc = particles[particles.size()-1];
+			ptc.area = out.detectParticle(ptc, x0, y0, 0x30);
+		}
+	}
+	for (Slice &ptc : particles)
+		out.paintParticle(ptc, 0);
+	out.replaceColor(0xFF, 0x80);
+	for (int pass=0; pass<4; pass++) {
+		int nbsz = (pass & 1) ? HOOD_SIZE_MOORE : HOOD_SIZE_NEUMANN;
+		for (Slice &ptc : particles)
+			out.expandParticle(ptc, 0, 0x30, 0x80, nbsz);
+	}
+
+	for (long long i=0; i<out.len; i++) {
+		out.buf[i] = out.buf[i] < 0x80 ? 0 : 0xFF;
+	}
+
+	if (expand) {
+		out.expandBorders(0xFF, 0xC0, HOOD_SIZE_MOORE, 0);
+		out.replaceColor(0xC0, 0xFF);
+	}
+}
 
 // -- called from masks_to_particles() --
 // Process single detected mask; if it consists of several disconnected areas, paint small ones (<minarea)
@@ -1095,3 +1114,108 @@ void create_id_mask(unsigned char *mask, int hm, int wm, unsigned short *data, i
 		dat.paintParticle(pt, (unsigned short)id);
 	}
 }
+
+static void merge_cells(Raster8& msk, std::vector<Particle3D>& cells, int i1, int i2)
+{
+	Particle3D& cell = cells[i1];
+	Particle3D& cell2 = cells[i2];
+	for (int z=0; size_t(z)<cell2.fills.size(); z++) {
+		if (!cell2.fills[z].empty())
+			cell.add_fill(cell2.fills[z], z);
+	}
+	cell2.clear();
+	cell.update_from_fill();
+	Boundary bnd = cell.bnd.boundary2d();
+	int z1, z2;
+	for (z1=cell.bnd.zmin; z1<=cell.bnd.zmax; z1++) {
+		if (cell.fills[z1].empty()) break;
+	}
+	for (z2=z1+1; z2<=cell.bnd.zmax; z2++) {
+		if (!cell.fills[z2].empty()) break;
+	}
+	--z2;
+	if (z2 < z1) return;
+	for (int z=z1; z<=z2; z++) {
+		msk.fill(0);
+		for (Particle3D& pt : cells) {
+			if (!pt.empty())
+				msk.paintParticleFill(pt.fills[z], 0x40);
+		}
+		msk.paintParticleFillInto(cell.fills[z1-1], 0x80, 0);
+		msk.paintParticleFillInto(cell.fills[z2+1], 0x80, 0);
+		msk.rescanParticleFill(bnd, cell.fills[z], 0x80);
+	}
+}
+
+void id_mask_merge_cells(unsigned short *data3d, int zd3d, int hd3d, int wd3d, int maxgap, double miniou)
+{
+	Raster16_3D dstack(wd3d, hd3d, zd3d, data3d);
+	Raster8 msk(wd3d, hd3d, NULL);
+	std::vector<Particle3D> cells;
+	
+	// Read cells from ID mask
+	for (int z=0; z<dstack.d; z++) {
+		for (int y=0; y<dstack.h; y++) {
+			unsigned short *b = dstack.scanLine(y, z);
+			for (int x=0; x<dstack.w; x++) {
+				if (b[x] == 0) continue;
+				int id = b[x];
+				int x1 = x + 1;
+				for (; x1<dstack.w; x1++)
+					if (int(b[x1]) != id) break;
+				--x1;
+				HSeg hs(y, x, x1);
+				int idx = id - 1;
+				if  (cells.size() <= size_t(idx))
+					cells.resize(idx+1);
+				Particle3D& cell = cells[idx];
+				if (cell.empty())
+					cell.fills.resize(dstack.d);
+				cell.fills[z].push_back(hs);
+				x = x1;
+			}
+		}
+	}
+	
+	// Calculate bounding boxes
+	for (Particle3D& cell : cells)
+		cell.update_from_fill();
+	
+	// std::cout << "Loaded " << cells.size() << " cells." << std::endl;
+
+	// Check every pair of cells if it needs to be merged into a single cell
+	for (int i1=0; size_t(i1)<cells.size()-1; i1++) {
+		Particle3D& cell1 = cells[i1];
+		if (cell1.empty()) continue;
+		Boundary bnd2d = cell1.bnd.boundary2d();
+		for (int i2=i1+1; size_t(i2)<cells.size(); i2++) {
+			Particle3D& cell2 = cells[i2];
+			if (cell2.empty()) continue;
+			if (!cell2.bnd.intersects2d(bnd2d)) continue;
+			double iou = 0.;
+			if (cell1.bnd.zmin > cell2.bnd.zmax && cell1.bnd.zmin - cell2.bnd.zmax <= maxgap) {
+				iou = fill_iou(cell2.fills[cell2.bnd.zmax], cell1.fills[cell1.bnd.zmin]);
+				if (iou >= miniou)
+					merge_cells(msk, cells, i1, i2);
+			}
+			if (cell2.bnd.zmin > cell1.bnd.zmax && cell2.bnd.zmin - cell1.bnd.zmax <= maxgap) {
+				iou = fill_iou(cell1.fills[cell1.bnd.zmax], cell2.fills[cell2.bnd.zmin]);
+				if (iou >= miniou)
+					merge_cells(msk, cells, i1, i2);
+			}
+		}
+	}
+	
+	dstack.fill(0);
+	int id = 0;
+	for (Particle3D& cell : cells) {
+		if (cell.empty()) continue;
+		++id;
+		dstack.paintCell(cell, id);
+	}
+	
+	// std::cout << "Painted " << id << " cells." << std::endl;
+}
+
+
+

@@ -1234,6 +1234,17 @@ Particle3D Raster3D::findBiggestCell(Boundary3D& bnd, unsigned char fg, unsigned
 
 //----------------------------- Raster16_3D --------------------------------------
 
+void Raster16_3D::paintCell(Particle3D& cell, unsigned short c)
+{
+	for (int z=0; size_t(z)<cell.fills.size(); z++) {
+		for (HSeg& hs : cell.fills[z]) {
+			unsigned short *b = scanLine(hs.y, z);
+			for (int x=hs.xl; x<=hs.xr; x++)
+				b[x] = c;
+		}
+	}
+}
+
 unsigned short Raster16_3D::otsu()
 {
 	Histogram hist(4096);
