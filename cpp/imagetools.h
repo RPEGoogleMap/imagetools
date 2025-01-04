@@ -188,4 +188,7 @@ void create_id_mask(unsigned char *mask, int hm, int wm, unsigned short *data, i
 // miniou - (optional) float, minimum IOU between closest z-slices to merge
 void id_mask_merge_cells(unsigned short *data3d, int zd3d, int hd3d, int wd3d, int maxgap=10, double miniou=0.6);
 
+int export_mask_id_3d(unsigned short *data3d, int zd3d, int hd3d, int wd3d,
+		const char *csvfile, int num_dilations=0);
+
 #endif

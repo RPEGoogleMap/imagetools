@@ -1,4 +1,3 @@
-
 #include "geom.h"
 #include "raster.h"
 #include "csv.h"
@@ -1218,4 +1217,83 @@ void id_mask_merge_cells(unsigned short *data3d, int zd3d, int hd3d, int wd3d, i
 }
 
 
+//--- export_mask_id_3d()
+static bool compare_cell_sort(SortScoreML& ss1, SortScoreML& ss2)
+{
+	return ss1.sc > ss2.sc;
+}
+
+static void dilate_cells(std::vector<Particle3D>& cells, int w, int h, int d, int nd)
+{
+	if (cells.empty()) return;
+	Raster8 msk(w, h, NULL);
+	
+	std::vector<SortScoreML> sort_cells(cells.size());
+	for (int idx=0; size_t(idx)<cells.size(); idx++) {
+		sort_cells[idx].ptid = idx;
+		sort_cells[idx].sc = cells[idx].iou_score(3);
+	}
+	std::sort(sort_cells.begin(), sort_cells.end(), compare_cell_sort);
+	
+	for (int pass=0; pass<nd; pass++) {
+		int nbsz = (pass&1) ? HOOD_SIZE_NEUMANN : HOOD_SIZE_MOORE;
+		for (int z=0; z<d; z++) {
+			msk.fill(0);
+			msk.fillBorder(0x10, 1);
+			for (int ii=0; size_t(ii)<sort_cells.size(); ii++) {
+				Particle3D& cell = cells[sort_cells[ii].ptid];
+				std::vector<HSeg>& fill = cell.fills[z];
+				if (fill.empty()) continue;
+				msk.paintParticleFillInto(fill, 0x80, 0);
+				Boundary bnd = fill_boundary(fill);
+				bnd.expand(1);
+				msk.clip(bnd, 1);
+				msk.expandBordersInto(bnd, 0x80, 0, 0x50,nbsz, false);
+				msk.rescanParticleFill(bnd, fill, 0x80);
+				msk.paintParticleFill(fill, 0xC0);
+			}
+		}
+	}
+}
+
+int export_mask_id_3d(unsigned short *data3d, int zd3d, int hd3d, int wd3d, const char *csvfile, int num_dilations)
+{
+	std::vector<Particle3D> cells;
+	if (read_cell_data(csvfile, cells, wd3d, hd3d, zd3d) < 0)
+		return 0;
+	if (cells.empty())
+		return 0;
+	
+	// std::cout << "Read " << cells.size() << " cells from " << csvfile << std::endl;
+	
+	if (num_dilations > 0) {
+		dilate_cells(cells, wd3d, hd3d, zd3d, num_dilations);
+	}
+	
+	Raster16_3D dstack(wd3d, hd3d, zd3d, data3d);
+	memset(dstack.buf, 0, dstack.len * sizeof (unsigned short));
+	
+	int id = 0;
+	for (Particle3D& cell : cells) {
+		int zmin = -1;
+		int zmax = -1;
+		for (int z=0; z<zd3d; z++) {
+			std::vector<HSeg> &fill = cell.fills[z];
+			if (fill.empty()) continue;
+			zmax = z;
+			if (zmin < 0) zmin = z;
+		}
+		if (zmax - zmin < 3) continue;
+		++id;
+		
+		for (int z=zmin; z<=zmax; z++) {
+			Raster16 dat = dstack.getPlane(z);
+			dat.paintParticleFill(cell.fills[z], (unsigned short)id);
+		}
+	}
+	
+	// std::cout << "Validated: " << id << " cells." << std::endl;
+	
+	return id;
+}
 
