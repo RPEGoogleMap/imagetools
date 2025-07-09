@@ -167,9 +167,22 @@ void artimask(unsigned short *data, int hd, int wd, unsigned char *mask, int hm,
 //
 // data - numpy array (height, width), dtype=uint16 containing cell segmentations;
 // 		each cell = unique pixel value, 0 - background, 1 - cell 1, 2 - cell 2, etc.
+// dist - (double); Cells are considered neighbors if the shortest distance between them is smaller than 'dist'.
+//		If dist is 0 or negative, a default value of sqrt(41) is used.
 //
 // result: tuple ((cellID1, NN1), (cellID2, NN2), ...), NNx = number of neighbors
-std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd);
+std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd, double dist=0);
+
+// imagetools.list_neighbors(data)
+// 		List cell neighbors
+//
+// data - numpy array (height, width), dtype=uint16 containing cell segmentations;
+// 		each cell = unique pixel value, 0 - background, 1 - cell 1, 2 - cell 2, etc.
+// dist - (double); Cells are considered neighbors if the shortest distance between them is smaller than 'dist'.
+//		If dist is 0 or negative, a default value of sqrt(41) is used.
+//
+// result: tuple ((cellID1, nbrID1, nbrID2, ...), (cellID2, nbrID1, nbrID2, ...), nbrIDx = a neighbor cell ID
+std::vector<std::vector<int>> list_neighbors(unsigned short *data, int hd, int wd, double dist=0);
 
 // imagetools.create_id_mask(mask, data, in_csv)
 //		Convert REShAPE-like data (refined segmentation + CSV containing XStart,YStart) into ID mask

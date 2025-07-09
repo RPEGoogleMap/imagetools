@@ -319,7 +319,7 @@ are removed (filled with background pixels).
 
 -------
 
-**`result = imagetools.count_neighbors(id_mask)`** : Count cell neighbors on 16-bit ID mask
+**`result = imagetools.count_neighbors(id_mask[, dist])`** : Count cell neighbors on 16-bit ID mask
 (0=background, 1=Cell1, 2=Cell2, etc.)
 
 Parameters:
@@ -327,9 +327,32 @@ Parameters:
 - `id_mask` : a numpy array of shape (height, width) and dtype=numpy.uint16, containing cell masks, each cell
 painted with unique color (pixel value) > 0
 
+- `dist` : float (optional, default 0) Max. distance between neighbors: cells are considered neighbors
+if the shortest distance between them is smaller than `dist`.
+If `dist` is 0 or negative, a default value of `sqrt(41)` is used.
+
 Returns:
 
 - tuple of 2-value tuples ((CellID1, Neighbors1), (CellID2, Neighbors2), ...), one entry per cell.
+
+-------
+
+**`result = imagetools.list_neighbors(id_mask[, dist])`** : Count cell neighbors on 16-bit ID mask
+(0=background, 1=Cell1, 2=Cell2, etc.) Similar to `count_neighbors()`, but returns lists of neighbors
+rather than neighbor counts.
+
+Parameters:
+
+- `id_mask` : a numpy array of shape (height, width) and dtype=numpy.uint16, containing cell masks, each cell
+painted with unique color (pixel value) > 0
+
+- `dist` : float (optional, default 0) Max. distance between neighbors: cells are considered neighbors
+if the shortest distance between them is smaller than `dist`.
+If `dist` is 0 or negative, a default value of `sqrt(41)` is used.
+
+Returns:
+
+- tuple of tuples ((CellID1, nbrID1, nbrID2, ...), (CellID2, nbrID1, nbrID2, ...), ...), one entry per cell.
 
 -------
 

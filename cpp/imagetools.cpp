@@ -1024,9 +1024,10 @@ static size_t find_pt_id(std::vector<std::vector<int>>& res, int id)
 	return idx;
 }
 
-std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd)
+std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int wd, double dist)
 {
 	long long max_nb_sqdist = 41ll;
+	if (dist > 0.) max_nb_sqdist = (long long)(dist * dist + 0.5);
 	Raster16 dat(wd, hd, data);
 	Raster8 msk(wd, hd, NULL);
 	msk.fill(0);
@@ -1074,6 +1075,67 @@ std::vector<std::vector<int>> count_neighbors(unsigned short *data, int hd, int 
 				if (pp1.sqdist(pp2) < max_nb_sqdist) {
 					++ res[i][1];
 					++ res[j][1];
+				}
+			}
+		}
+	}
+
+	return res;
+}
+
+std::vector<std::vector<int>> list_neighbors(unsigned short *data, int hd, int wd, double dist)
+{
+	long long max_nb_sqdist = 41ll;
+	if (dist > 0.) max_nb_sqdist = (long long)(dist * dist + 0.5);
+	Raster16 dat(wd, hd, data);
+	Raster8 msk(wd, hd, NULL);
+	msk.fill(0);
+	msk.fillBorder(0x10, 1);
+	std::vector<std::vector<int>> res;
+	
+	std::vector<ParticlePerim> perims;
+	
+	for (int y0=1; y0<dat.h-1; y0++) {
+		unsigned short* pd = dat.scanLine(y0);
+		unsigned char* pm = msk.scanLine(y0);
+		for (int x0=1; x0<dat.w-1; x0++) {
+			unsigned short id = pd[x0];
+			if (id == 0 || pm[x0] != 0) continue;
+			size_t idx = perims.size();
+			perims.resize(idx + 1);
+			res.resize(idx + 1);
+			size_t area = detect_ptid_perim(perims[idx], dat, msk, x0, y0);
+			size_t idx0 = find_pt_id(res, int(id));
+			if (idx0 < idx) {
+				if (int(area) > res[idx0][2]) {
+					res[idx0][2] = int(area);
+					perims[idx0].assign(perims[idx]);
+				}
+				perims.resize(idx);
+				res.resize(idx);
+				continue;
+			}
+			res[idx].push_back(int(id));
+			res[idx].push_back(0);
+			res[idx].push_back(int(area));
+		}
+	}
+	
+	for (size_t i=0; i<res.size(); i++) {
+		res[i].resize(1);
+	}
+	
+	if (perims.size() > 1) {
+		for (size_t i=0; i<perims.size()-1; i++) {
+			ParticlePerim& pp1 = perims[i];
+			int pti = res[i][0];
+			for (size_t j=i+1; j<perims.size(); j++) {
+				ParticlePerim& pp2 = perims[j];
+				int ptj = res[j][0];
+				if (!pp1.intersects(pp2)) continue;
+				if (pp1.sqdist(pp2) < max_nb_sqdist) {
+					res[i].push_back(ptj);
+					res[j].push_back(pti);
 				}
 			}
 		}
